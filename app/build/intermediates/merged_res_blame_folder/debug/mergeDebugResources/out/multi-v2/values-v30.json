@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.banksms.expensetracker.app-mergeDebugResources-2:/values-v30/values-v30.xml",
+            "map": [
+                {
+                    "source": "/Users/ahmedarabie/.gradle/caches/8.9/transforms/6a620da6e43a92bee492c22a9292888b/transformed/material3-release/res/values-v30/values-v30.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "72",
+                        "endOffsets": "123"
+                    }
+                }
+            ]
+        }
+    ]
+}
