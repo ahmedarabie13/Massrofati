@@ -91,8 +91,13 @@ object TemplateMatcher {
         }
 
         val normalizedBody = normalizeDigits(sampleSms.trim())
-        val regex = compileTemplateToRegex(template.pattern)
-            ?: return TemplateTestResult(isMatch = false, errorMessage = "Failed to compile template pattern into regex")
+        val (regex, compileError) = compileTemplateWithDiagnostics(template.pattern)
+        if (regex == null) {
+            return TemplateTestResult(
+                isMatch = false,
+                errorMessage = "Failed to compile template pattern into regex: ${compileError ?: "unknown error"}"
+            )
+        }
 
         val matcher = regex.matcher(normalizedBody)
         if (!matcher.find()) {
@@ -152,6 +157,11 @@ object TemplateMatcher {
      * Compiles a human-readable template string into a regex Pattern.
      */
     private fun compileTemplateToRegex(patternString: String): Pattern? {
+        val (pattern, _) = compileTemplateWithDiagnostics(patternString)
+        return pattern
+    }
+
+    private fun compileTemplateWithDiagnostics(patternString: String): Pair<Pattern?, String?> {
         return try {
             val normalized = normalizeDigits(patternString.trim())
             // Regex to find {placeholder} or * or {...}
@@ -159,6 +169,7 @@ object TemplateMatcher {
 
             val regexBuilder = StringBuilder()
             var lastIndex = 0
+            val usedGroups = mutableSetOf<String>()
 
             val matches = tokenRegex.findAll(normalized)
             for (match in matches) {
@@ -168,7 +179,7 @@ object TemplateMatcher {
 
                 val placeholder = match.groupValues.getOrNull(1)
                 if (placeholder != null && placeholder.isNotEmpty()) {
-                    appendPlaceholderToRegex(regexBuilder, placeholder.lowercase())
+                    appendPlaceholderToRegex(regexBuilder, placeholder.lowercase(), usedGroups)
                 } else {
                     // Wildcard '*'
                     regexBuilder.append("""(?:.*?)""")
@@ -182,12 +193,13 @@ object TemplateMatcher {
                 appendLiteralToRegex(regexBuilder, trailing)
             }
 
-            Pattern.compile(
+            val compiled = Pattern.compile(
                 regexBuilder.toString(),
                 Pattern.CASE_INSENSITIVE or Pattern.DOTALL or Pattern.MULTILINE
             )
-        } catch (_: Exception) {
-            null
+            Pair(compiled, null)
+        } catch (e: Exception) {
+            Pair(null, e.message)
         }
     }
 
@@ -220,24 +232,29 @@ object TemplateMatcher {
         }
     }
 
-    private fun appendPlaceholderToRegex(builder: StringBuilder, placeholder: String) {
+    private fun appendPlaceholderToRegex(
+        builder: StringBuilder,
+        placeholder: String,
+        usedGroups: MutableSet<String>
+    ) {
+        val isFirst = usedGroups.add(placeholder)
         when (placeholder) {
-            "amount" -> builder.append("""(?<amount>[0-9,]+(?:\.[0-9]+)?)""")
-            "currency" -> builder.append("""(?<currency>[A-Za-z]{2,5}|(?:ريال|جنيه|درهم|د\.ك|SR|SAR|EGP|USD|EUR))""")
-            "merchant" -> builder.append("""(?<merchant>[^\r\n;]+)""")
-            "card" -> builder.append("""(?<card>(?:\*+\s*\d+|\d{4,}))""")
-            "account" -> builder.append("""(?<account>(?:\*+\s*\d+|\d{4,}))""")
-            "balance" -> builder.append("""(?<balance>[0-9,]+(?:\.[0-9]+)?)""")
-            "type" -> builder.append("""(?<type>[^\s\r\n]+)""")
-            "category" -> builder.append("""(?<category>[^\r\n;]+)""")
-            "date" -> builder.append("""(?<date>\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})""")
-            "time" -> builder.append("""(?<time>\d{1,2}:\d{2}(?::\d{2})?)""")
+            "amount" -> if (isFirst) builder.append("""(?<amount>[0-9,]+(?:\.[0-9]+)?)""") else builder.append("""(?:[0-9,]+(?:\.[0-9]+)?)""")
+            "currency" -> if (isFirst) builder.append("""(?<currency>[A-Za-z]{2,5}|(?:ريال|جنيه|درهم|د\.ك|SR|SAR|EGP|USD|EUR))""") else builder.append("""(?:[A-Za-z]{2,5}|(?:ريال|جنيه|درهم|د\.ك|SR|SAR|EGP|USD|EUR))""")
+            "merchant" -> if (isFirst) builder.append("""(?<merchant>[^\r\n;]+)""") else builder.append("""(?:[^\r\n;]+)""")
+            "card" -> if (isFirst) builder.append("""(?<card>(?:\*+\s*\d+|\d{4,}))""") else builder.append("""(?:\*+\s*\d+|\d{4,})""")
+            "account" -> if (isFirst) builder.append("""(?<account>(?:\*+\s*\d+|\d{4,}))""") else builder.append("""(?:\*+\s*\d+|\d{4,})""")
+            "balance" -> if (isFirst) builder.append("""(?<balance>[0-9,]+(?:\.[0-9]+)?)""") else builder.append("""(?:[0-9,]+(?:\.[0-9]+)?)""")
+            "type" -> if (isFirst) builder.append("""(?<type>[^\s\r\n]+)""") else builder.append("""(?:[^\s\r\n]+)""")
+            "category" -> if (isFirst) builder.append("""(?<category>[^\r\n;]+)""") else builder.append("""(?:[^\r\n;]+)""")
+            "date" -> if (isFirst) builder.append("""(?<date>\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})""") else builder.append("""(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})""")
+            "time" -> if (isFirst) builder.append("""(?<time>\d{1,2}:\d{2}(?::\d{2})?)""") else builder.append("""(?:\d{1,2}:\d{2}(?::\d{2})?)""")
             "skip", "...", "channel" -> builder.append("""(?:.*?)""")
             else -> {
                 // Any custom placeholder treated as non-newline capture
                 val cleanKey = placeholder.replace(Regex("[^a-zA-Z0-9]"), "")
                 if (cleanKey.isNotEmpty()) {
-                    builder.append("""(?<${cleanKey}>[^\r\n]+)""")
+                    if (isFirst) builder.append("""(?<${cleanKey}>[^\r\n]+)""") else builder.append("""(?:[^\r\n]+)""")
                 } else {
                     builder.append("""(?:.*?)""")
                 }

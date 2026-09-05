@@ -184,4 +184,67 @@ class TemplateMatcherTest {
         assertEquals(TransactionType.INCOME, parsed.type)
         assertEquals("Income / Deposits", parsed.category)
     }
+
+    @Test
+    fun testLocalInternetPurchaseTemplate() {
+        val sms = """
+            Local Internet purchase
+            Amount 275.32 SAR
+            Account *2509
+            At Noon
+            LAK *1679
+            on 19/08/26 at 22:42
+        """.trimIndent()
+
+        // 1. The user's original template with duplicate {amount} on line 5:
+        val buggyTemplate = MessageTemplate(
+            name = "Local Internet purchase (buggy)",
+            pattern = """
+                Local Internet purchase
+                Amount {amount} {currency}
+                Account {card}
+                At {merchant}
+                LAK *1679{amount}
+                on {date} at {time}
+            """.trimIndent()
+        )
+        val buggyResult = TemplateMatcher.test(buggyTemplate, sms)
+        assertFalse(buggyResult.isMatch)
+
+        // 2. The corrected template without duplicate {amount} on line 5:
+        val fixedTemplate = MessageTemplate(
+            name = "Local Internet purchase (fixed)",
+            pattern = """
+                Local Internet purchase
+                Amount {amount} {currency}
+                Account {card}
+                At {merchant}
+                LAK *1679
+                on {date} at {time}
+            """.trimIndent()
+        )
+        val fixedResult = TemplateMatcher.test(fixedTemplate, sms)
+        assertTrue("Fixed template should match: ${fixedResult.errorMessage}", fixedResult.isMatch)
+        val parsed = fixedResult.parsedTransaction
+        assertNotNull(parsed)
+        assertEquals(275.32, parsed!!.amount, 0.001)
+        assertEquals("SAR", parsed.currency)
+        assertEquals("Noon", parsed.merchant)
+        assertEquals("**2509", parsed.accountOrCard)
+
+        // 3. Flexible variation with wildcard for LAK line (matches any LAK account/card):
+        val flexibleTemplate = MessageTemplate(
+            name = "Local Internet purchase (flexible)",
+            pattern = """
+                Local Internet purchase
+                Amount {amount} {currency}
+                Account {card}
+                At {merchant}
+                LAK *
+                on {date} at {time}
+            """.trimIndent()
+        )
+        val flexibleResult = TemplateMatcher.test(flexibleTemplate, sms)
+        assertTrue("Flexible template should match: ${flexibleResult.errorMessage}", flexibleResult.isMatch)
+    }
 }
