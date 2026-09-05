@@ -47,6 +47,35 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): TransactionEntity?
 
+    @Query("SELECT * FROM transactions WHERE messageId = :messageId LIMIT 1")
+    suspend fun getByMessageId(messageId: Long): TransactionEntity?
+
+    @Query("""
+        SELECT * FROM transactions 
+        WHERE sender = :sender 
+        AND ABS(timestamp - :timestamp) < 120000
+        AND (rawBody = :rawBody OR (amount = :amount AND type = :type))
+        ORDER BY id ASC 
+        LIMIT 1
+    """)
+    suspend fun findDuplicate(
+        sender: String,
+        amount: Double,
+        type: String,
+        rawBody: String,
+        timestamp: Long
+    ): TransactionEntity?
+
+    @Query("""
+        DELETE FROM transactions 
+        WHERE id NOT IN (
+            SELECT MIN(id) 
+            FROM transactions 
+            GROUP BY sender, amount, rawBody, (timestamp / 60000)
+        )
+    """)
+    suspend fun deleteDuplicates()
+
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
     fun getAllTransactionsFlow(): Flow<List<TransactionEntity>>
 

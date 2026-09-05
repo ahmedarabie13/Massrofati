@@ -5,9 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
+import com.banksms.expensetracker.BankSmsApp
 import com.banksms.expensetracker.data.local.AppDatabase
-import com.banksms.expensetracker.data.local.entity.TransactionEntity
-import com.banksms.expensetracker.data.parser.BankSmsParser
+import com.banksms.expensetracker.data.reader.SmsReader
+import com.banksms.expensetracker.data.repository.TransactionRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -21,37 +22,41 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
         if (messages.isNullOrEmpty()) return
 
         val pendingResult = goAsync()
-        val db = AppDatabase.getInstance(context)
+
+        val repository = (context.applicationContext as? BankSmsApp)?.repository ?: run {
+            val db = AppDatabase.getInstance(context)
+            TransactionRepository(
+                transactionDao = db.transactionDao(),
+                bankSenderDao = db.bankSenderDao(),
+                smsReader = SmsReader(context)
+            )
+        }
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val monitoredSenders = db.bankSenderDao().getMonitoredSendersSync()
-                    .map { it.senderId.lowercase() }
-                    .toSet()
+                // Group multipart SMS fragments by sender so full message body is assembled
+                val messagesBySender = messages.groupBy {
+                    it.displayOriginatingAddress ?: it.originatingAddress ?: ""
+                }
 
-                for (sms in messages) {
-                    val sender = sms.displayOriginatingAddress ?: sms.originatingAddress ?: continue
-                    val body = sms.displayMessageBody ?: sms.messageBody ?: continue
-                    val timestamp = sms.timestampMillis
+                for ((sender, partList) in messagesBySender) {
+                    if (sender.isBlank()) continue
 
-                    val senderLower = sender.lowercase()
-                    // Check if sender matches any monitored sender (exact or substring)
-                    val isMonitored = monitoredSenders.any { monitored ->
-                        senderLower == monitored || senderLower.contains(monitored) || monitored.contains(senderLower)
+                    val fullBody = partList.joinToString(separator = "") {
+                        it.displayMessageBody ?: it.messageBody ?: ""
                     }
+                    val timestamp = partList.firstOrNull()?.timestampMillis ?: System.currentTimeMillis()
 
-                    if (isMonitored) {
-                        val parsed = BankSmsParser.parse(body, sender)
-                        if (parsed != null) {
-                            val transaction = parsed.toTransaction(
-                                messageId = timestamp, // Use timestamp as unique messageId for incoming
-                                sender = sender,
-                                timestamp = timestamp,
-                                rawBody = body
-                            )
-                            db.transactionDao().insert(TransactionEntity.fromDomain(transaction))
-                            Log.d("SmsReceiver", "Successfully processed incoming bank SMS: $transaction")
-                        }
+                    val inserted = repository.processIncomingSms(
+                        sender = sender,
+                        body = fullBody,
+                        timestamp = timestamp
+                    )
+
+                    if (inserted) {
+                        Log.d("SmsReceiver", "Successfully processed incoming bank SMS from $sender")
+                    } else {
+                        Log.d("SmsReceiver", "Ignored or duplicate incoming SMS from $sender")
                     }
                 }
             } catch (e: Exception) {

@@ -107,9 +107,12 @@ class SmsReader(private val context: Context) {
                 val addressCol = it.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
                 val bodyCol = it.getColumnIndexOrThrow(Telephony.Sms.BODY)
                 val dateCol = it.getColumnIndexOrThrow(Telephony.Sms.DATE)
+                val seenMessageIds = mutableSetOf<Long>()
 
                 while (it.moveToNext()) {
                     val messageId = it.getLong(idCol)
+                    if (!seenMessageIds.add(messageId)) continue
+
                     val sender = it.getString(addressCol) ?: ""
                     val body = it.getString(bodyCol) ?: ""
                     val date = it.getLong(dateCol)

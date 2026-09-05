@@ -5,6 +5,7 @@ import com.banksms.expensetracker.data.local.dao.TransactionDao
 import com.banksms.expensetracker.data.local.entity.BankSenderEntity
 import com.banksms.expensetracker.data.local.entity.TransactionEntity
 import com.banksms.expensetracker.data.model.*
+import com.banksms.expensetracker.data.parser.BankSmsParser
 import com.banksms.expensetracker.data.reader.DiscoveredSender
 import com.banksms.expensetracker.data.reader.SmsReader
 import kotlinx.coroutines.Dispatchers
@@ -26,10 +27,57 @@ class TransactionRepository(
 ) {
 
     /**
+     * Processes an incoming real-time SMS from BroadcastReceiver with full deduplication.
+     * @return true if a new transaction was inserted, false if skipped or already exists.
+     */
+    suspend fun processIncomingSms(
+        sender: String,
+        body: String,
+        timestamp: Long
+    ): Boolean = withContext(Dispatchers.IO) {
+        val monitored = bankSenderDao.getMonitoredSendersSync()
+            .map { it.senderId.lowercase() }
+            .toSet()
+
+        val senderLower = sender.lowercase()
+        val isMonitored = monitored.any {
+            senderLower == it || senderLower.contains(it) || it.contains(senderLower)
+        }
+        if (!isMonitored) return@withContext false
+
+        val parsed = BankSmsParser.parse(body, sender) ?: return@withContext false
+
+        // Prevent inserting if this transaction is already present
+        val existing = transactionDao.findDuplicate(
+            sender = sender,
+            amount = parsed.amount,
+            type = parsed.type.name,
+            rawBody = body,
+            timestamp = timestamp
+        )
+        if (existing != null) {
+            return@withContext false
+        }
+
+        val transaction = parsed.toTransaction(
+            messageId = timestamp,
+            sender = sender,
+            timestamp = timestamp,
+            rawBody = body
+        )
+        val insertId = transactionDao.insert(TransactionEntity.fromDomain(transaction))
+        insertId != -1L
+    }
+
+    /**
      * Scans the SMS inbox for all monitored bank senders and imports new transactions into Room DB.
+     * Deduplicates against existing transactions to prevent double-counting.
      */
     suspend fun syncTransactionsFromSms(): SyncResult = withContext(Dispatchers.IO) {
         try {
+            // Clean up any historical duplicate transactions first
+            transactionDao.deleteDuplicates()
+
             val monitored = bankSenderDao.getMonitoredSendersSync()
             if (monitored.isEmpty()) {
                 return@withContext SyncResult(0, 0, listOf("No monitored bank senders configured. Please enable banks in Settings."))
@@ -42,9 +90,38 @@ class TransactionRepository(
                 return@withContext SyncResult(0, 0)
             }
 
-            val entities = parsedTransactions.map { TransactionEntity.fromDomain(it) }
-            val insertResults = transactionDao.insertAll(entities)
-            val newlyImported = insertResults.count { it != -1L }
+            var newlyImported = 0
+            for (transaction in parsedTransactions) {
+                val entity = TransactionEntity.fromDomain(transaction)
+
+                // Check 1: Already exists with this exact messageId?
+                val existingByMsgId = transactionDao.getByMessageId(entity.messageId)
+                if (existingByMsgId != null) {
+                    continue
+                }
+
+                // Check 2: Was it already inserted by real-time receiver (which used timestamp as messageId)?
+                val existingDuplicate = transactionDao.findDuplicate(
+                    sender = entity.sender,
+                    amount = entity.amount,
+                    type = entity.type,
+                    rawBody = entity.rawBody,
+                    timestamp = entity.timestamp
+                )
+
+                if (existingDuplicate != null) {
+                    // Update existing record to match the permanent inbox messageId
+                    if (existingDuplicate.messageId != entity.messageId) {
+                        transactionDao.update(existingDuplicate.copy(messageId = entity.messageId))
+                    }
+                } else {
+                    // Brand new transaction
+                    val id = transactionDao.insert(entity)
+                    if (id != -1L) {
+                        newlyImported++
+                    }
+                }
+            }
 
             SyncResult(
                 messagesScanned = parsedTransactions.size,
