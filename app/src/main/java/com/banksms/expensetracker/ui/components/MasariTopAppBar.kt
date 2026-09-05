@@ -42,104 +42,134 @@ fun MasariTopAppBar(
     val themeManager = LocalThemeManager.current
     val currentTheme = themeManager.themeMode.value
 
-    TopAppBar(
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (showBrandEmblem) {
-                    MasariBrandEmblem()
-                }
+    Column(modifier = modifier) {
+        TopAppBar(
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (showBrandEmblem) {
+                        MasariBrandEmblem()
+                    }
 
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            ),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (title == "Masari") {
-                            Spacer(modifier = Modifier.width(6.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "مصاري",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 11.sp
+                                text = title,
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-0.2).sp
                                 ),
-                                color = MasariEmerald
+                                color = MaterialTheme.colorScheme.onSurface
                             )
+                            if (title == "Masari") {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MasariEmerald.copy(alpha = 0.12f),
+                                    border = CardDefaults.outlinedCardBorder(enabled = true)
+                                ) {
+                                    Text(
+                                        text = "مصاري",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 11.sp
+                                        ),
+                                        color = MasariEmerald,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                         }
-                    }
 
-                    if (!subtitle.isNullOrBlank()) {
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        },
-        actions = {
-            // Theme toggle button with animation
-            IconButton(
-                onClick = { themeManager.toggleNext() }
-            ) {
-                AnimatedContent(
-                    targetState = currentTheme,
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(220))
-                    },
-                    label = "ThemeToggleAnimation"
-                ) { mode ->
-                    when (mode) {
-                        AppThemeMode.LIGHT -> {
-                            Icon(
-                                imageVector = Icons.Default.LightMode,
-                                contentDescription = "Switch to Dark Mode",
-                                tint = Color(0xFFF59E0B) // Warm Amber Sun
-                            )
-                        }
-                        AppThemeMode.DARK -> {
-                            Icon(
-                                imageVector = Icons.Default.DarkMode,
-                                contentDescription = "Switch to System Mode",
-                                tint = MasariCyan // Electric Cyan Moon
-                            )
-                        }
-                        AppThemeMode.SYSTEM -> {
-                            Icon(
-                                imageVector = Icons.Default.BrightnessAuto,
-                                contentDescription = "Switch to Light Mode",
-                                tint = MaterialTheme.colorScheme.primary // Brand Emerald
+                        if (!subtitle.isNullOrBlank()) {
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Normal
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
-            }
+            },
+            actions = {
+                // Sleek theme toggle button
+                Surface(
+                    onClick = { themeManager.toggleNext() },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    border = CardDefaults.outlinedCardBorder(enabled = true),
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnimatedContent(
+                            targetState = currentTheme,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(220))
+                            },
+                            label = "ThemeToggleAnimation"
+                        ) { mode ->
+                            when (mode) {
+                                AppThemeMode.LIGHT -> {
+                                    Icon(
+                                        imageVector = Icons.Default.LightMode,
+                                        contentDescription = "Switch to Dark Mode",
+                                        tint = Color(0xFFF59E0B), // Warm Amber Sun
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                                AppThemeMode.DARK -> {
+                                    Icon(
+                                        imageVector = Icons.Default.DarkMode,
+                                        contentDescription = "Switch to System Mode",
+                                        tint = MasariCyan, // Electric Cyan Moon
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                                AppThemeMode.SYSTEM -> {
+                                    Icon(
+                                        imageVector = Icons.Default.BrightnessAuto,
+                                        contentDescription = "Switch to Light Mode",
+                                        tint = MasariEmerald, // Brand Emerald
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
 
-            // Custom caller actions
-            actions()
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            scrolledContainerColor = MaterialTheme.colorScheme.surface
-        ),
-        modifier = modifier
-    )
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // Custom caller actions
+                actions()
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                scrolledContainerColor = MaterialTheme.colorScheme.surface
+            )
+        )
+
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+            thickness = 0.8.dp
+        )
+    }
 }
 
 @Composable
 fun MasariBrandEmblem(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .size(34.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .size(36.dp)
+            .clip(RoundedCornerShape(11.dp))
             .background(
                 Brush.linearGradient(
                     colors = listOf(
@@ -147,13 +177,18 @@ fun MasariBrandEmblem(modifier: Modifier = Modifier) {
                         MasariCyan
                     )
                 )
+            )
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(11.dp)
             ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = Icons.Default.TrendingUp,
             contentDescription = "Masari Emblem",
-            tint = Color(0xFF0B0F19),
+            tint = Color(0xFF07241A),
             modifier = Modifier.size(20.dp)
         )
     }

@@ -52,6 +52,16 @@ fun formatBankDisplayName(sender: String): String {
         "alinma" -> "Alinma"
         "alrajhibank" -> "Al Rajhi"
         "alinmapay" -> "AlinmaPay"
+        "snb", "alahli" -> "SNB"
+        "riyadbank" -> "Riyad"
+        "anb" -> "ANB"
+        "sab", "sabb" -> "SAB"
+        "bsf", "fransi" -> "Fransi"
+        "albilad" -> "Albilad"
+        "aljazira" -> "Aljazira"
+        "stcpay" -> "stc pay"
+        "urpay" -> "urpay"
+        "tiqmo" -> "Tiqmo"
         "manual" -> "Manual"
         else -> sender.uppercase()
     }
@@ -60,10 +70,12 @@ fun formatBankDisplayName(sender: String): String {
 private val BankPalette = listOf(
     Color(0xFF0284C7), // Sky Blue (Al Rajhi style)
     Color(0xFF0D9488), // Teal (Alinma style)
+    Color(0xFF059669), // Emerald (SNB style)
+    Color(0xFF2563EB), // Royal Blue (Riyad Bank style)
     Color(0xFF8B5CF6), // Violet (AlinmaPay style)
-    Color(0xFFF59E0B), // Amber Gold
-    Color(0xFF10B981), // Emerald
-    Color(0xFFEC4899), // Pink
+    Color(0xFFF59E0B), // Amber Gold (Albilad style)
+    Color(0xFFEC4899), // Pink / Rose (stc pay style)
+    Color(0xFF06B6D4), // Cyan (urpay style)
     Color(0xFF6366F1), // Indigo
     Color(0xFF64748B)  // Slate
 )
@@ -73,7 +85,11 @@ fun getBankColor(sender: String): Color {
         "alrajhibank" -> Color(0xFF0284C7)
         "alinma" -> Color(0xFF0D9488)
         "alinmapay" -> Color(0xFF8B5CF6)
-        "manual" -> Color(0xFF10B981)
+        "snb", "alahli" -> Color(0xFF059669)
+        "riyadbank" -> Color(0xFF2563EB)
+        "stcpay" -> Color(0xFFEC4899)
+        "urpay" -> Color(0xFF06B6D4)
+        "manual" -> Color(0xFF00E599)
         else -> {
             val index = sender.hashCode().absoluteValue % BankPalette.size
             BankPalette[index]

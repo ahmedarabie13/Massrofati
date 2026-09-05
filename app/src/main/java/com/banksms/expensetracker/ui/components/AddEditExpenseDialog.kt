@@ -98,8 +98,9 @@ fun AddEditExpenseDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 16.dp),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(26.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = CardDefaults.outlinedCardBorder(enabled = true),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
         ) {
             Column(
@@ -144,7 +145,7 @@ fun AddEditExpenseDialog(
                     placeholder = { Text("0.00") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     singleLine = true,
                     prefix = { Text("SAR ", fontWeight = FontWeight.Bold) }
                 )
@@ -288,9 +289,16 @@ fun AddEditExpenseDialog(
                             onDismiss()
                         },
                         shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = com.banksms.expensetracker.ui.theme.MasariEmerald,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(if (isEditMode) "Save Changes" else "Save Expense")
+                        Text(
+                            text = if (isEditMode) "Save Changes" else "Save Expense",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }

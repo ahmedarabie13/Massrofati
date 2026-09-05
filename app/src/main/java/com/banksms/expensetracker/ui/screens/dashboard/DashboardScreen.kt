@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -24,6 +25,7 @@ import com.banksms.expensetracker.data.file.ManualExpense
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.ui.components.*
 import com.banksms.expensetracker.ui.screens.transactions.TransactionDetailDialog
+import com.banksms.expensetracker.ui.theme.MasariCyan
 import com.banksms.expensetracker.ui.theme.MasariEmerald
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,21 +120,29 @@ fun DashboardScreen(
                 ) {
                     QuickActionButton(
                         title = "Add Expense",
+                        subtitle = "Manual entry",
                         icon = Icons.Default.Add,
+                        accentColor = MasariEmerald,
                         onClick = { showAddExpenseDialog = true },
                         modifier = Modifier.weight(1f)
                     )
 
                     QuickActionButton(
                         title = if (state.isSyncing) "Scanning..." else "Scan SMS",
+                        subtitle = if (state.isSyncing) "In progress" else "Auto-sync",
                         icon = Icons.Default.Sync,
+                        accentColor = MasariCyan,
+                        isSpinning = state.isSyncing,
+                        spinAngle = rotation,
                         onClick = { viewModel.syncSms() },
                         modifier = Modifier.weight(1f)
                     )
 
                     QuickActionButton(
-                        title = "All Txns",
+                        title = "Activity",
+                        subtitle = "All records",
                         icon = Icons.Default.ReceiptLong,
+                        accentColor = Color(0xFFA78BFA), // Lavender / Violet
                         onClick = onNavigateToTransactions,
                         modifier = Modifier.weight(1f)
                     )
@@ -153,13 +163,13 @@ fun DashboardScreen(
                         Text(
                             text = "Recent Activity",
                             style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 18.sp
                             )
                         )
                         if (state.recentTransactions.isNotEmpty()) {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant
                             ) {
                                 Text(
@@ -175,7 +185,10 @@ fun DashboardScreen(
                     TextButton(onClick = onNavigateToTransactions) {
                         Text(
                             text = "View All",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            ),
                             color = MasariEmerald
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -183,7 +196,7 @@ fun DashboardScreen(
                             imageVector = Icons.Default.ArrowForward,
                             contentDescription = null,
                             tint = MasariEmerald,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
@@ -195,8 +208,8 @@ fun DashboardScreen(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 16.dp),
-                        shape = RoundedCornerShape(20.dp),
+                            .padding(vertical = 12.dp),
+                        shape = RoundedCornerShape(22.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                         ),
@@ -210,7 +223,7 @@ fun DashboardScreen(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(56.dp)
+                                    .size(58.dp)
                                     .clip(CircleShape)
                                     .background(MasariEmerald.copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center
@@ -225,30 +238,31 @@ fun DashboardScreen(
                             Spacer(modifier = Modifier.height(14.dp))
                             Text(
                                 text = "No transactions found in this period",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Scan your incoming bank SMS or record manual cash expenses.",
+                                text = "Scan your incoming bank SMS or record manual cash expenses to see your balance analytics.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(18.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
                                     onClick = { viewModel.syncSms() },
                                     enabled = !state.isSyncing,
-                                    shape = RoundedCornerShape(12.dp)
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald)
                                 ) {
-                                    Text(if (state.isSyncing) "Scanning..." else "Scan Bank SMS")
+                                    Text(if (state.isSyncing) "Scanning..." else "Scan Bank SMS", fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(
                                     onClick = { showAddExpenseDialog = true },
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
-                                    Text("+ Add Manual")
+                                    Text("+ Add Manual", fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
@@ -298,45 +312,66 @@ fun DashboardScreen(
 @Composable
 private fun QuickActionButton(
     title: String,
+    subtitle: String,
     icon: ImageVector,
+    accentColor: androidx.compose.ui.graphics.Color,
+    isSpinning: Boolean = false,
+    spinAngle: Float = 0f,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.clip(RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
+        modifier = modifier.clip(RoundedCornerShape(18.dp)),
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surface,
         border = CardDefaults.outlinedCardBorder(enabled = true),
         shadowElevation = 1.dp
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+            modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(MasariEmerald.copy(alpha = 0.12f)),
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(accentColor.copy(alpha = 0.14f))
+                    .border(
+                        width = 0.8.dp,
+                        color = accentColor.copy(alpha = 0.28f),
+                        shape = RoundedCornerShape(12.dp)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
-                    tint = MasariEmerald,
-                    modifier = Modifier.size(18.dp)
+                    tint = accentColor,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .then(if (isSpinning) Modifier.rotate(spinAngle) else Modifier)
                 )
             }
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 11.5.sp
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Normal
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
             )
         }

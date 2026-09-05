@@ -36,6 +36,9 @@ import com.banksms.expensetracker.ui.screens.skipped.SkippedViewModel
 import com.banksms.expensetracker.ui.screens.transactions.TransactionsScreen
 import com.banksms.expensetracker.ui.screens.transactions.TransactionsViewModel
 import com.banksms.expensetracker.ui.theme.MasariEmerald
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 
 @Composable
 fun MainScreen(modifier: Modifier = Modifier) {
@@ -145,7 +148,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 NavHost(
                     navController = navController,
                     startDestination = Screen.Dashboard.route,
-                    modifier = Modifier.padding(innerPadding)
+                    modifier = Modifier.padding(innerPadding),
+                    enterTransition = { fadeIn(animationSpec = tween(180)) },
+                    exitTransition = { fadeOut(animationSpec = tween(180)) }
                 ) {
                     composable(Screen.Dashboard.route) {
                         DashboardScreen(

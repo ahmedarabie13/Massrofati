@@ -26,21 +26,63 @@ fun TransactionTypeFilterRow(
         FilterChip(
             selected = selectedType == null,
             onClick = { onTypeSelected(null) },
-            label = { Text("All") },
+            label = {
+                Text(
+                    "All Activity",
+                    fontWeight = if (selectedType == null) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                )
+            },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = com.banksms.expensetracker.ui.theme.MasariEmerald.copy(alpha = 0.16f),
+                selectedLabelColor = com.banksms.expensetracker.ui.theme.MasariEmerald
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+                enabled = true,
+                selected = selectedType == null,
+                selectedBorderColor = com.banksms.expensetracker.ui.theme.MasariEmerald.copy(alpha = 0.6f)
+            ),
             shape = RoundedCornerShape(20.dp)
         )
 
         FilterChip(
             selected = selectedType == TransactionType.EXPENSE,
             onClick = { onTypeSelected(TransactionType.EXPENSE) },
-            label = { Text("Debits (Expenses)") },
+            label = {
+                Text(
+                    "Expenses (Outflow)",
+                    fontWeight = if (selectedType == TransactionType.EXPENSE) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                )
+            },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = com.banksms.expensetracker.ui.theme.ExpenseCoral.copy(alpha = 0.16f),
+                selectedLabelColor = com.banksms.expensetracker.ui.theme.ExpenseCoral
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+                enabled = true,
+                selected = selectedType == TransactionType.EXPENSE,
+                selectedBorderColor = com.banksms.expensetracker.ui.theme.ExpenseCoral.copy(alpha = 0.6f)
+            ),
             shape = RoundedCornerShape(20.dp)
         )
 
         FilterChip(
             selected = selectedType == TransactionType.INCOME,
             onClick = { onTypeSelected(TransactionType.INCOME) },
-            label = { Text("Credits (Income)") },
+            label = {
+                Text(
+                    "Income (Inflow)",
+                    fontWeight = if (selectedType == TransactionType.INCOME) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                )
+            },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = com.banksms.expensetracker.ui.theme.IncomeEmerald.copy(alpha = 0.16f),
+                selectedLabelColor = com.banksms.expensetracker.ui.theme.IncomeEmerald
+            ),
+            border = FilterChipDefaults.filterChipBorder(
+                enabled = true,
+                selected = selectedType == TransactionType.INCOME,
+                selectedBorderColor = com.banksms.expensetracker.ui.theme.IncomeEmerald.copy(alpha = 0.6f)
+            ),
             shape = RoundedCornerShape(20.dp)
         )
     }

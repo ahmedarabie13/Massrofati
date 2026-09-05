@@ -42,14 +42,14 @@ fun TransactionItem(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(18.dp))
             .border(
                 width = 0.8.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(16.dp)
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(18.dp)
             )
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -58,15 +58,20 @@ fun TransactionItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Category Icon Avatar
+            // Category Icon Avatar in Modern Squircle
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(CircleShape)
-                    .background(categoryColor.copy(alpha = 0.12f)),
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(categoryColor.copy(alpha = 0.14f))
+                    .border(
+                        width = 0.8.dp,
+                        color = categoryColor.copy(alpha = 0.28f),
+                        shape = RoundedCornerShape(13.dp)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -87,7 +92,7 @@ fun TransactionItem(
                 ) {
                     Text(
                         text = transaction.merchant?.takeIf { it.isNotBlank() }
-                            ?: if (isExpense) "Expense" else "Credit",
+                            ?: if (isExpense) "Debit Expense" else "Credit / Deposit",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp
@@ -101,17 +106,18 @@ fun TransactionItem(
                     if (transaction.isManual) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = MasariEmerald.copy(alpha = 0.15f),
+                            color = MasariEmerald.copy(alpha = 0.14f),
                             border = CardDefaults.outlinedCardBorder(enabled = true)
                         ) {
                             Text(
-                                text = "Manual",
+                                text = "MANUAL",
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.5.sp
                                 ),
                                 color = MasariEmerald,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                             )
                         }
                     }
@@ -125,10 +131,15 @@ fun TransactionItem(
                 ) {
                     BankBadge(sender = transaction.sender)
 
-                    transaction.accountOrCard?.let { card ->
+                    transaction.accountOrCard?.let { rawCard ->
+                        val cleanCard = rawCard.replace("*", "").trim()
+                        val displayCard = if (cleanCard.isNotEmpty()) "•• $cleanCard" else rawCard
                         Text(
-                            text = card,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            text = displayCard,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
@@ -153,9 +164,9 @@ fun TransactionItem(
                 Text(
                     text = CurrencyFormatter.formatSigned(transaction.amount, isExpense, transaction.currency),
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         fontSize = 15.sp,
-                        letterSpacing = (-0.2).sp
+                        letterSpacing = (-0.3).sp
                     ),
                     color = amountColor
                 )
@@ -164,7 +175,10 @@ fun TransactionItem(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "Bal: ${CurrencyFormatter.format(bal, transaction.currency)}",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

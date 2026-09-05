@@ -1,6 +1,8 @@
 package com.banksms.expensetracker.ui.screens.transactions
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,8 +80,9 @@ fun TransactionDetailDialog(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(vertical = 24.dp),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(26.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = CardDefaults.outlinedCardBorder(enabled = true),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
         ) {
             Column(
@@ -103,14 +106,14 @@ fun TransactionDetailDialog(
                         if (transaction.isManual) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
+                                shape = RoundedCornerShape(6.dp),
                                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f)
                             ) {
                                 Text(
                                     text = "Manual",
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                     color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -125,7 +128,8 @@ fun TransactionDetailDialog(
                 // Hero Amount Card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, amountColor.copy(alpha = 0.25f)),
                     colors = CardDefaults.cardColors(
                         containerColor = amountColor.copy(alpha = 0.08f)
                     )

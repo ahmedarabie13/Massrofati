@@ -296,30 +296,42 @@ private fun BankShareItem(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BankBadge(sender = bankShare.sender)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "${bankShare.transactionCount} txns",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = "${bankShare.transactionCount} txns",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
 
             Text(
                 text = CurrencyFormatter.format(bankShare.totalExpense, currency),
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.5.sp
+                ),
                 color = ExpenseCoral
             )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(7.dp))
 
         LinearProgressIndicator(
             progress = { fraction },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(8.dp)
+                .height(7.dp)
                 .clip(RoundedCornerShape(4.dp)),
             color = bankColor,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant
+            trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
         )
     }
 }
@@ -340,43 +352,58 @@ private fun CategoryShareItem(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
+                        .size(12.dp)
                         .clip(CircleShape)
                         .background(categoryColor)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = share.category,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.5.sp
+                    ),
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "${String.format("%.1f", share.percentage)}%",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = categoryColor.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = "${String.format("%.1f", share.percentage)}%",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 10.sp
+                        ),
+                        color = categoryColor,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = CurrencyFormatter.format(share.totalAmount, currency),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.sp
+                    ),
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(7.dp))
 
         LinearProgressIndicator(
             progress = { (share.percentage / 100f).coerceIn(0f, 1f) },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp)),
+                .height(7.dp)
+                .clip(RoundedCornerShape(4.dp)),
             color = categoryColor,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant
+            trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
         )
     }
 }
@@ -386,48 +413,116 @@ private fun MonthlyTrendItem(
     trend: MonthlyTrend,
     currency: String
 ) {
+    val netSavings = trend.totalIncome - trend.totalExpense
+    val isPositive = netSavings >= 0
+    val totalMonthFlow = trend.totalExpense + trend.totalIncome
+    val expenseRatio = if (totalMonthFlow > 0) (trend.totalExpense / totalMonthFlow).toFloat() else 0f
+    val incomeRatio = if (totalMonthFlow > 0) (trend.totalIncome / totalMonthFlow).toFloat() else 0f
+
     Surface(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         border = CardDefaults.outlinedCardBorder(enabled = true)
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
-            Text(
-                text = trend.monthLabel,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = trend.monthLabel,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "Expense",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = CurrencyFormatter.format(trend.totalExpense, currency),
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                        color = ExpenseCoral
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = (if (isPositive) IncomeEmerald else ExpenseCoral).copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            text = if (isPositive) "+${CurrencyFormatter.format(netSavings, currency)}" else CurrencyFormatter.format(netSavings, currency),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.5.sp
+                            ),
+                            color = if (isPositive) IncomeEmerald else ExpenseCoral,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
 
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "Credit",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = CurrencyFormatter.format(trend.totalIncome, currency),
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                        color = IncomeEmerald
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = "Outflow",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = CurrencyFormatter.format(trend.totalExpense, currency),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            ),
+                            color = ExpenseCoral
+                        )
+                    }
+
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = "Inflow",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = CurrencyFormatter.format(trend.totalIncome, currency),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            ),
+                            color = IncomeEmerald
+                        )
+                    }
+                }
+            }
+
+            if (totalMonthFlow > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    if (expenseRatio > 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(expenseRatio.coerceAtLeast(0.01f))
+                                .background(ExpenseCoral)
+                        )
+                    }
+                    if (incomeRatio > 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(incomeRatio.coerceAtLeast(0.01f))
+                                .background(IncomeEmerald)
+                        )
+                    }
                 }
             }
         }

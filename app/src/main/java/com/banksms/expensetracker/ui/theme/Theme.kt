@@ -9,11 +9,11 @@ import androidx.compose.ui.platform.LocalContext
 
 private val MasariDarkColorScheme = darkColorScheme(
     primary = MasariEmerald,
-    onPrimary = ObsidianBlack,
-    primaryContainer = MasariEmeraldDark,
-    onPrimaryContainer = Color.White,
+    onPrimary = Color(0xFF052B1F), // Rich dark contrast for neon emerald
+    primaryContainer = Color(0xFF023824),
+    onPrimaryContainer = MasariEmeraldLight,
     secondary = MasariCyan,
-    onSecondary = ObsidianBlack,
+    onSecondary = Color(0xFF032D3D),
     secondaryContainer = Color(0xFF0C4A6E),
     onSecondaryContainer = Color(0xFFBAE6FD),
     tertiary = MasariGold,
@@ -25,7 +25,7 @@ private val MasariDarkColorScheme = darkColorScheme(
     surfaceVariant = CharcoalCard,
     onSurfaceVariant = TextSecondaryDark,
     outline = BorderDark,
-    outlineVariant = Color(0xFF263345),
+    outlineVariant = Color(0xFF1E2B40),
     error = ExpenseCoral,
     onError = Color.White,
     errorContainer = Color(0xFF4C0519),
