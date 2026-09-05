@@ -5,12 +5,16 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -31,6 +35,7 @@ import com.banksms.expensetracker.ui.screens.skipped.SkippedScreen
 import com.banksms.expensetracker.ui.screens.skipped.SkippedViewModel
 import com.banksms.expensetracker.ui.screens.transactions.TransactionsScreen
 import com.banksms.expensetracker.ui.screens.transactions.TransactionsViewModel
+import com.banksms.expensetracker.ui.theme.MasariEmerald
 
 @Composable
 fun MainScreen(modifier: Modifier = Modifier) {
@@ -84,30 +89,54 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
             Scaffold(
                 bottomBar = {
-                    NavigationBar {
-                        Screen.items.forEach { screen ->
-                            val selected = currentRoute == screen.route
-                            NavigationBarItem(
-                                icon = {
-                                    Icon(
-                                        imageVector = if (selected) screen.selectedIcon else screen.unselectedIcon,
-                                        contentDescription = screen.title
-                                    )
-                                },
-                                label = { Text(screen.title) },
-                                selected = selected,
-                                onClick = {
-                                    if (currentRoute != screen.route) {
-                                        navController.navigate(screen.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
+                    Column {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                            thickness = 0.8.dp
+                        )
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 0.dp
+                        ) {
+                            Screen.items.forEach { screen ->
+                                val selected = currentRoute == screen.route
+                                NavigationBarItem(
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selected) screen.selectedIcon else screen.unselectedIcon,
+                                            contentDescription = screen.title
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            text = screen.title,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                                fontSize = 11.sp
+                                            )
+                                        )
+                                    },
+                                    selected = selected,
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MasariEmerald,
+                                        selectedTextColor = MasariEmerald,
+                                        indicatorColor = MasariEmerald.copy(alpha = 0.15f),
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    onClick = {
+                                        if (currentRoute != screen.route) {
+                                            navController.navigate(screen.route) {
+                                                popUpTo(navController.graph.findStartDestination().id) {
+                                                    saveState = true
+                                                }
+                                                launchSingleTop = true
+                                                restoreState = true
                                             }
-                                            launchSingleTop = true
-                                            restoreState = true
                                         }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 },
@@ -138,7 +167,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     }
 
                     composable(Screen.Skipped.route) {
-                        com.banksms.expensetracker.ui.screens.skipped.SkippedScreen(viewModel = skippedViewModel)
+                        SkippedScreen(viewModel = skippedViewModel)
                     }
 
                     composable(Screen.Reports.route) {

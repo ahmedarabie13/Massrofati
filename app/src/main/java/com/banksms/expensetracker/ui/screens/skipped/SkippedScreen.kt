@@ -1,9 +1,11 @@
 package com.banksms.expensetracker.ui.screens.skipped
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -18,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.banksms.expensetracker.data.file.SkippedTransaction
 import com.banksms.expensetracker.ui.components.BankBadge
+import com.banksms.expensetracker.ui.components.MasariTopAppBar
+import com.banksms.expensetracker.ui.theme.MasariEmerald
 import com.banksms.expensetracker.util.CurrencyFormatter
 import com.banksms.expensetracker.util.DateUtils
 
@@ -42,7 +46,7 @@ fun SkippedScreen(
         val tx = transactionToRestore!!
         AlertDialog(
             onDismissRequest = { transactionToRestore = null },
-            icon = { Icon(Icons.Default.Restore, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            icon = { Icon(Icons.Default.Restore, contentDescription = null, tint = MasariEmerald) },
             title = { Text("Restore Transaction?") },
             text = {
                 Text(
@@ -54,7 +58,8 @@ fun SkippedScreen(
                     onClick = {
                         viewModel.unskipTransaction(tx)
                         transactionToRestore = null
-                    }
+                    },
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Restore")
                 }
@@ -69,13 +74,10 @@ fun SkippedScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Skipped Transactions",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
+            MasariTopAppBar(
+                title = "Skipped",
+                subtitle = "Excluded From Calculations",
+                showBrandEmblem = false
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -90,11 +92,13 @@ fun SkippedScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                border = CardDefaults.outlinedCardBorder(enabled = true),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -106,7 +110,7 @@ fun SkippedScreen(
                     Column {
                         Text(
                             text = "Skipped From Reports",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(2.dp))
@@ -120,7 +124,7 @@ fun SkippedScreen(
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             text = "Total Excluded",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(2.dp))
@@ -128,7 +132,7 @@ fun SkippedScreen(
                             text = CurrencyFormatter.format(state.totalSkippedAmount, "SAR"),
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MasariEmerald
                             )
                         )
                     }
@@ -144,7 +148,11 @@ fun SkippedScreen(
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 placeholder = { Text("Search skipped records...") },
                 leadingIcon = {
-                    Icon(imageVector = Icons.Default.Search, contentDescription = null)
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 },
                 trailingIcon = {
                     if (state.searchQuery.isNotEmpty()) {
@@ -154,10 +162,16 @@ fun SkippedScreen(
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MasariEmerald,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                )
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // List or Empty State
             if (state.skippedTransactions.isEmpty()) {
@@ -168,21 +182,29 @@ fun SkippedScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(MasariEmerald.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp),
+                                tint = MasariEmerald
+                            )
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = if (state.searchQuery.isNotEmpty()) "No matching skipped transactions" else "No skipped transactions",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Any transaction you skip from the Transactions detail dialog will be saved in your local skipped_transactions.json file and displayed here.",
+                            text = "Any transaction you skip from the Transactions detail dialog will be saved in your local file and displayed here.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -218,7 +240,14 @@ private fun SkippedTransactionCard(
     onRestore: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(16.dp)
+            ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -269,7 +298,7 @@ private fun SkippedTransactionCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                         .padding(8.dp)
                 ) {
                     Text(
@@ -299,10 +328,11 @@ private fun SkippedTransactionCard(
                     Icon(
                         imageVector = Icons.Default.Restore,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(16.dp),
+                        tint = MasariEmerald
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Restore / Unskip", style = MaterialTheme.typography.labelMedium)
+                    Text("Restore", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }

@@ -1,10 +1,13 @@
 package com.banksms.expensetracker.ui.screens.transactions
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -12,15 +15,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.banksms.expensetracker.data.file.ManualExpense
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.model.TransactionType
 import com.banksms.expensetracker.ui.components.AddEditExpenseDialog
 import com.banksms.expensetracker.ui.components.DateRangeSelectionBottomSheet
+import com.banksms.expensetracker.ui.components.MasariTopAppBar
 import com.banksms.expensetracker.ui.components.TransactionItem
 import com.banksms.expensetracker.ui.components.TransactionTypeFilterRow
+import com.banksms.expensetracker.ui.theme.MasariEmerald
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,22 +43,20 @@ fun TransactionsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Transactions Explorer",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
+            MasariTopAppBar(
+                title = "Transactions",
+                subtitle = "${state.transactions.size} records found",
+                showBrandEmblem = false
             )
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showAddExpenseDialog = true },
                 icon = { Icon(Icons.Default.Add, contentDescription = "Add Expense") },
-                text = { Text("Add Expense") },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+                text = { Text("Add Expense", fontWeight = FontWeight.Bold) },
+                containerColor = MasariEmerald,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(16.dp)
             )
         },
         modifier = modifier
@@ -68,9 +73,13 @@ fun TransactionsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp),
-                placeholder = { Text("Search merchant, keyword...") },
+                placeholder = { Text("Search merchant, amount, or bank...") },
                 leadingIcon = {
-                    Icon(imageVector = Icons.Default.Search, contentDescription = null)
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 },
                 trailingIcon = {
                     if (state.searchQuery.isNotEmpty()) {
@@ -80,7 +89,13 @@ fun TransactionsScreen(
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MasariEmerald,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                )
             )
 
             // Date Range Bar
@@ -91,31 +106,49 @@ fun TransactionsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = state.dateRange.label,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                TextButton(
+                Surface(
                     onClick = { showDatePicker = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    border = CardDefaults.outlinedCardBorder(enabled = true)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CalendarToday,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Change Period")
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = null,
+                            tint = MasariEmerald,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = state.dateRange.label,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
                 }
+
+                Text(
+                    text = "${state.transactions.size} transactions",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
-            // Type Filter Tabs
+            // Type Filter Chips Row
             TransactionTypeFilterRow(
                 selectedType = state.selectedType,
                 onTypeSelected = { viewModel.setTypeFilter(it) },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
             )
 
             // Bank Filter Chips Row
@@ -123,7 +156,7 @@ fun TransactionsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp)
+                        .padding(vertical = 2.dp)
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -132,7 +165,7 @@ fun TransactionsScreen(
                     FilterChip(
                         selected = state.selectedBank == null,
                         onClick = { viewModel.setBankFilter(null) },
-                        label = { Text("All Sources") },
+                        label = { Text("All Sources", fontSize = 12.sp) },
                         shape = RoundedCornerShape(16.dp)
                     )
 
@@ -140,7 +173,7 @@ fun TransactionsScreen(
                         FilterChip(
                             selected = state.selectedBank == bank,
                             onClick = { viewModel.setBankFilter(if (state.selectedBank == bank) null else bank) },
-                            label = { Text(bank) },
+                            label = { Text(bank, fontSize = 12.sp) },
                             shape = RoundedCornerShape(16.dp)
                         )
                     }
@@ -149,21 +182,7 @@ fun TransactionsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Count summary header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "${state.transactions.size} records",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Transactions List
             if (state.transactions.isEmpty()) {
@@ -174,16 +193,30 @@ fun TransactionsScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.FilterList,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FilterList,
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
                         Text(
                             text = "No matching transactions found",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Try adjusting your filters or date range.",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -195,6 +228,10 @@ fun TransactionsScreen(
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    item {
+                        Spacer(modifier = Modifier.height(2.dp))
+                    }
+
                     items(state.transactions, key = { it.id }) { transaction ->
                         TransactionItem(
                             transaction = transaction,
@@ -203,7 +240,7 @@ fun TransactionsScreen(
                     }
 
                     item {
-                        Spacer(modifier = Modifier.height(80.dp)) // Padding for FAB
+                        Spacer(modifier = Modifier.height(84.dp)) // Padding for Extended FAB
                     }
                 }
             }

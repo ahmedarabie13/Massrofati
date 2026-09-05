@@ -1,6 +1,7 @@
 package com.banksms.expensetracker.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -24,34 +25,58 @@ fun BankBadge(
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(bankColor.copy(alpha = 0.15f))
+            .clip(RoundedCornerShape(8.dp))
+            .background(bankColor.copy(alpha = 0.14f))
+            .border(
+                width = 0.8.dp,
+                color = bankColor.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(8.dp)
+            )
             .padding(horizontal = 8.dp, vertical = 3.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = sender.uppercase(),
+            text = formatBankDisplayName(sender),
             style = MaterialTheme.typography.labelSmall.copy(
                 fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
+                fontSize = 10.5.sp,
+                letterSpacing = 0.3.sp,
                 color = bankColor
             )
         )
     }
 }
 
+fun formatBankDisplayName(sender: String): String {
+    return when (sender.lowercase()) {
+        "alinma" -> "Alinma"
+        "alrajhibank" -> "Al Rajhi"
+        "alinmapay" -> "AlinmaPay"
+        "manual" -> "Manual"
+        else -> sender.uppercase()
+    }
+}
+
 private val BankPalette = listOf(
-    Color(0xFF1E88E5), // Blue
-    Color(0xFF00897B), // Teal
-    Color(0xFF5E35B1), // Deep Purple
-    Color(0xFFE65100), // Orange
-    Color(0xFF00838F), // Cyan
-    Color(0xFF2E7D32), // Green
-    Color(0xFFC2185B), // Pink
-    Color(0xFF455A64)  // Slate
+    Color(0xFF0284C7), // Sky Blue (Al Rajhi style)
+    Color(0xFF0D9488), // Teal (Alinma style)
+    Color(0xFF8B5CF6), // Violet (AlinmaPay style)
+    Color(0xFFF59E0B), // Amber Gold
+    Color(0xFF10B981), // Emerald
+    Color(0xFFEC4899), // Pink
+    Color(0xFF6366F1), // Indigo
+    Color(0xFF64748B)  // Slate
 )
 
 fun getBankColor(sender: String): Color {
-    val index = sender.hashCode().absoluteValue % BankPalette.size
-    return BankPalette[index]
+    return when (sender.lowercase()) {
+        "alrajhibank" -> Color(0xFF0284C7)
+        "alinma" -> Color(0xFF0D9488)
+        "alinmapay" -> Color(0xFF8B5CF6)
+        "manual" -> Color(0xFF10B981)
+        else -> {
+            val index = sender.hashCode().absoluteValue % BankPalette.size
+            BankPalette[index]
+        }
+    }
 }

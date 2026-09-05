@@ -18,7 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.banksms.expensetracker.ui.theme.PrimaryBlue
+import com.banksms.expensetracker.ui.components.MasariBrandEmblem
+import com.banksms.expensetracker.ui.theme.MasariEmerald
 
 @Composable
 fun PermissionScreen(
@@ -32,73 +33,79 @@ fun PermissionScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(100.dp)
-                .clip(CircleShape)
-                .background(PrimaryBlue.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.MarkEmailRead,
-                contentDescription = null,
-                tint = PrimaryBlue,
-                modifier = Modifier.size(52.dp)
-            )
-        }
+        MasariBrandEmblem(modifier = Modifier.size(64.dp))
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         Text(
-            text = "SMS Access Required",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+            text = "Welcome to Masari",
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 0.5.sp
+            ),
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "To track your bank transactions, expenses, and credits automatically, the app needs permission to read bank SMS messages.",
+            text = "مسارك المالي الذكي",
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                color = MasariEmerald
+            ),
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Text(
+            text = "To track your bank transactions, expenses, and credits automatically, Masari needs permission to read SMS messages from your approved banks.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             lineHeight = 22.sp
         )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = CardDefaults.outlinedCardBorder(enabled = true),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 PrivacyItem(
                     icon = Icons.Default.Lock,
                     title = "100% Offline & Private",
-                    subtitle = "No data ever leaves your device. All parsing is done locally."
+                    subtitle = "No financial data ever leaves your device. All calculations are executed locally."
                 )
                 PrivacyItem(
                     icon = Icons.Default.Security,
-                    title = "Bank Senders Only",
-                    subtitle = "Only selected bank messages are parsed; personal SMS are ignored."
+                    title = "Monitored Banks Only",
+                    subtitle = "Only messages from Alinma, Al Rajhi, AlinmaPay, or your chosen banks are scanned."
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(36.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         Button(
             onClick = onRequestPermission,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(54.dp),
+                .height(52.dp),
             shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+            colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald)
         ) {
             Text(
                 text = "Grant SMS Permission",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
             )
         }
     }
@@ -111,12 +118,20 @@ private fun PrivacyItem(
     subtitle: String
 ) {
     Row(verticalAlignment = Alignment.Top) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = PrimaryBlue,
-            modifier = Modifier.size(20.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(MasariEmerald.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MasariEmerald,
+                modifier = Modifier.size(18.dp)
+            )
+        }
         Spacer(modifier = Modifier.width(12.dp))
         Column {
             Text(

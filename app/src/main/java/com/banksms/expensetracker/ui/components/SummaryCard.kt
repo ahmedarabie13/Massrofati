@@ -1,13 +1,16 @@
 package com.banksms.expensetracker.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -19,9 +22,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.banksms.expensetracker.ui.theme.ExpenseRed
-import com.banksms.expensetracker.ui.theme.IncomeGreen
-import com.banksms.expensetracker.ui.theme.PrimaryBlue
+import com.banksms.expensetracker.ui.theme.ExpenseCoral
+import com.banksms.expensetracker.ui.theme.IncomeEmerald
+import com.banksms.expensetracker.ui.theme.MasariCyan
+import com.banksms.expensetracker.ui.theme.MasariEmerald
 import com.banksms.expensetracker.util.CurrencyFormatter
 
 @Composable
@@ -35,8 +39,21 @@ fun SummaryOverviewCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .border(
+                width = 1.dp,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                        MasariEmerald.copy(alpha = 0.25f),
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                    )
+                ),
+                shape = RoundedCornerShape(22.dp)
+            ),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -47,7 +64,7 @@ fun SummaryOverviewCard(
                 .fillMaxWidth()
                 .padding(20.dp)
         ) {
-            // Header with period selection
+            // Header with Period Picker Pill
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -55,39 +72,69 @@ fun SummaryOverviewCard(
             ) {
                 Column {
                     Text(
-                        text = "Net Cash Flow",
-                        style = MaterialTheme.typography.labelMedium,
+                        text = "NET CASH FLOW",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.2.sp
+                        ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = CurrencyFormatter.format(netSavings, currency),
                         style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = if (netSavings >= 0) IncomeGreen else ExpenseRed
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 28.sp,
+                            color = if (netSavings >= 0) IncomeEmerald else ExpenseCoral
                         )
                     )
                 }
 
+                // Interactive Period Selector Pill
                 Surface(
                     onClick = onPeriodClick,
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                    border = CardDefaults.outlinedCardBorder(enabled = true),
+                    modifier = Modifier.clip(RoundedCornerShape(16.dp))
                 ) {
-                    Text(
-                        text = periodLabel,
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = MasariEmerald,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = periodLabel,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-            Divider(color = MaterialTheme.colorScheme.surfaceVariant)
+            Spacer(modifier = Modifier.height(18.dp))
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                thickness = 0.8.dp
+            )
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Row with Total Expenses & Total Income
+            // Split Metric Cards: Expenses vs Credits
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -96,7 +143,7 @@ fun SummaryOverviewCard(
                     title = "Total Expenses",
                     amount = totalExpense,
                     currency = currency,
-                    color = ExpenseRed,
+                    color = ExpenseCoral,
                     icon = Icons.Default.ArrowDownward,
                     modifier = Modifier.weight(1f)
                 )
@@ -105,7 +152,7 @@ fun SummaryOverviewCard(
                     title = "Total Credits",
                     amount = totalIncome,
                     currency = currency,
-                    color = IncomeGreen,
+                    color = IncomeEmerald,
                     icon = Icons.Default.ArrowUpward,
                     modifier = Modifier.weight(1f)
                 )
@@ -123,44 +170,49 @@ private fun MetricItem(
     icon: ImageVector,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(color.copy(alpha = 0.08f))
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        modifier = modifier.clip(RoundedCornerShape(14.dp)),
+        shape = RoundedCornerShape(14.dp),
+        color = color.copy(alpha = 0.08f),
+        border = CardDefaults.outlinedCardBorder(enabled = true)
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = 0.2f)),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(20.dp)
-            )
-        }
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
 
-        Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
-        Column {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = CurrencyFormatter.format(amount, currency),
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                ),
-                color = color
-            )
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = CurrencyFormatter.format(amount, currency),
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    ),
+                    color = color
+                )
+            }
         }
     }
 }

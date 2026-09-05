@@ -1,6 +1,7 @@
 package com.banksms.expensetracker.ui.screens.senders
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,8 +16,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.banksms.expensetracker.data.model.BankSender
 import com.banksms.expensetracker.ui.components.BankBadge
+import com.banksms.expensetracker.ui.components.MasariTopAppBar
+import com.banksms.expensetracker.ui.theme.MasariEmerald
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,16 +34,17 @@ fun BankSendersScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Monitored Banks",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
+            MasariTopAppBar(
+                title = "Banks",
+                subtitle = "Selective SMS Monitoring",
+                showBrandEmblem = false,
                 actions = {
                     IconButton(onClick = { showSandboxDialog = true }) {
-                        Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = "Test SMS Parser")
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Test SMS Parser",
+                            tint = MasariEmerald
+                        )
                     }
                     IconButton(
                         onClick = { viewModel.discoverFromInbox() },
@@ -49,10 +54,13 @@ fun BankSendersScreen(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MasariEmerald
                             )
                         } else {
-                            Icon(imageVector = Icons.Default.FindInPage, contentDescription = "Discover Senders")
+                            Icon(
+                                imageVector = Icons.Default.FindInPage,
+                                contentDescription = "Discover Senders"
+                            )
                         }
                     }
                 }
@@ -61,7 +69,9 @@ fun BankSendersScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary
+                containerColor = MasariEmerald,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Icon(imageVector = Icons.Default.Add, contentDescription = "Add Bank")
             }
@@ -76,19 +86,25 @@ fun BankSendersScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
+                Spacer(modifier = Modifier.height(2.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = CardDefaults.outlinedCardBorder(enabled = true),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
                             text = "Selective Bank Monitoring",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Toggle on the banks you have accounts with. Only SMS from enabled senders will be scanned and tracked.",
+                            text = "Toggle on the banks you have accounts with. Only incoming messages from active banks will be scanned and reflected in your expenses.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -143,7 +159,14 @@ private fun BankSenderItem(
     onDelete: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(16.dp)
+            ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (sender.isMonitored) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
@@ -180,7 +203,11 @@ private fun BankSenderItem(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
                     checked = sender.isMonitored,
-                    onCheckedChange = { onToggle() }
+                    onCheckedChange = { onToggle() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedTrackColor = MasariEmerald
+                    )
                 )
             }
         }
@@ -201,7 +228,7 @@ private fun AddBankDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Enter the SMS sender ID (as shown in your messages app, e.g. 'CIB', 'NBE', 'HSBC', 'Chase').",
+                    text = "Enter the SMS sender ID (as shown in your messages app, e.g. 'alinma', 'alrajhibank', 'alinmapay').",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -211,7 +238,8 @@ private fun AddBankDialog(
                     onValueChange = { senderId = it },
                     label = { Text("Sender ID *") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
 
                 OutlinedTextField(
@@ -219,14 +247,16 @@ private fun AddBankDialog(
                     onValueChange = { displayName = it },
                     label = { Text("Display Name (optional)") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
             }
         },
         confirmButton = {
             Button(
                 onClick = { onAdd(senderId, displayName) },
-                enabled = senderId.isNotBlank()
+                enabled = senderId.isNotBlank(),
+                shape = RoundedCornerShape(10.dp)
             ) {
                 Text("Add")
             }
@@ -312,12 +342,13 @@ private fun DiscoveredSendersBottomSheet(
                                 Text(
                                     text = "Monitored",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MasariEmerald
                                 )
                             } else {
                                 Button(
                                     onClick = { onAddSender(item.address) },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Text("+ Track")
                                 }

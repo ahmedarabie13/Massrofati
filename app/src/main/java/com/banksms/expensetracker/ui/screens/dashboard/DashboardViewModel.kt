@@ -96,6 +96,13 @@ class DashboardViewModel(
         }
     }
 
+    fun addManualExpense(expense: com.banksms.expensetracker.data.file.ManualExpense) {
+        viewModelScope.launch {
+            repository.addManualExpense(expense)
+            _syncMessage.value = "Expense added successfully"
+        }
+    }
+
     fun clearSyncMessage() {
         _syncMessage.value = null
     }
