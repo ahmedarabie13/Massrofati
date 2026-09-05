@@ -20,18 +20,34 @@ object BankSmsParser {
     /**
      * Parse a bank SMS body into a [ParsedTransaction].
      * @param smsBody  the raw SMS text
-     * @param sender   the SMS sender address (e.g. "Alinma", "AlRajhiBank", "AlinmaPay")
+     * @param sender   the SMS sender address (e.g. "Alinma", "AlRajhiBank", "AlinmaPay", "SNB", etc.)
+     * @param customTemplates  list of user-configured message templates from file system
      * @return a parsed transaction or `null` if the message is not a financial transaction
      */
-    fun parse(smsBody: String, sender: String = ""): ParsedTransaction? {
+    fun parse(
+        smsBody: String,
+        sender: String = "",
+        customTemplates: List<com.banksms.expensetracker.data.model.MessageTemplate> = emptyList()
+    ): ParsedTransaction? {
         if (smsBody.isBlank()) return null
         val body = normalizeDigits(smsBody.trim())
+
+        // 1. Check custom templates first
+        for (template in customTemplates) {
+            if (template.isEnabled) {
+                val matched = TemplateMatcher.match(smsBody, sender, template)
+                if (matched != null) {
+                    return matched
+                }
+            }
+        }
+
         val senderLower = sender.lowercase()
 
         // Exclude credit card bill payments / settlements across all banks
         if (isCreditCardPayment(body)) return null
 
-        // Route to bank-specific parser based on sender name or content detection
+        // 2. Route to bank-specific built-in parser based on sender name or content detection
         return when {
             // AlinmaPay must be checked BEFORE Alinma (substring match)
             senderLower.contains("alinmapay") || isAlinmaPayMessage(body) ->
@@ -43,7 +59,7 @@ object BankSmsParser {
             senderLower.contains("alrajhi") || senderLower.contains("rajhi") || isAlRajhiMessage(body) ->
                 parseAlRajhi(body)
 
-            else -> null // Only parse the 3 configured banks
+            else -> null // Only parse the 3 configured default banks
         }
     }
 

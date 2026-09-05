@@ -130,4 +130,39 @@ class ExpenseFileManagerTest {
         assertEquals(0, fileManager.getSkippedTransactions().size)
         assertFalse(fileManager.isSkipped(777L, "Alinma", 1725051240000L, ""))
     }
+
+    @Test
+    fun testMessageTemplatePersistenceAndToggle() {
+        // Initial call seeds default templates
+        val initial = fileManager.getMessageTemplates()
+        assertTrue(initial.isNotEmpty())
+
+        val custom = com.banksms.expensetracker.data.model.MessageTemplate(
+            id = "custom_test_1",
+            name = "Custom Template Test",
+            sender = "SNB",
+            pattern = "Amount: {amount} SAR",
+            isEnabled = true
+        )
+
+        fileManager.saveMessageTemplate(custom)
+        val afterSave = fileManager.getMessageTemplates()
+        val found = afterSave.find { it.id == "custom_test_1" }
+        assertNotNull(found)
+        assertEquals("Custom Template Test", found!!.name)
+        assertTrue(found.isEnabled)
+
+        // Toggle enabled to false
+        fileManager.toggleTemplate("custom_test_1", false)
+        val afterToggle = fileManager.getMessageTemplates()
+        val foundToggled = afterToggle.find { it.id == "custom_test_1" }
+        assertNotNull(foundToggled)
+        assertFalse(foundToggled!!.isEnabled)
+
+        // Delete template
+        val deleted = fileManager.deleteMessageTemplate("custom_test_1")
+        assertTrue(deleted)
+        val afterDelete = fileManager.getMessageTemplates()
+        assertNull(afterDelete.find { it.id == "custom_test_1" })
+    }
 }

@@ -1,6 +1,7 @@
 package com.banksms.expensetracker.data.file
 
 import android.content.Context
+import com.banksms.expensetracker.data.model.MessageTemplate
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.model.TransactionType
 import org.json.JSONArray
@@ -175,6 +176,10 @@ class ExpenseFileManager(
         File(dataDir, "skipped_transactions.json")
     }
 
+    private val messageTemplatesFile: File by lazy {
+        File(dataDir, "message_templates.json")
+    }
+
     private val lock = Any()
 
     // ── Manual Expenses Operations ────────────────────────────────────────
@@ -294,6 +299,75 @@ class ExpenseFileManager(
             val jsonArray = JSONArray()
             skipped.forEach { jsonArray.put(it.toJsonObject()) }
             writeAtomically(skippedTransactionsFile, jsonArray.toString(2))
+        } catch (e: Exception) {
+            System.err.println("ExpenseFileManager error: ${e.message}")
+        }
+    }
+
+    // ── Message Templates Operations ─────────────────────────────────────
+
+    fun getMessageTemplates(): List<MessageTemplate> = synchronized(lock) {
+        if (!messageTemplatesFile.exists()) {
+            // Seed with default templates and save to file system
+            val initial = MessageTemplate.defaultTemplates
+            writeMessageTemplates(initial)
+            return initial
+        }
+        try {
+            val content = messageTemplatesFile.readText()
+            if (content.isBlank()) return emptyList()
+            val jsonArray = JSONArray(content)
+            val result = mutableListOf<MessageTemplate>()
+            for (i in 0 until jsonArray.length()) {
+                result.add(MessageTemplate.fromJsonObject(jsonArray.getJSONObject(i)))
+            }
+            result.sortedByDescending { it.updatedAt }
+        } catch (e: Exception) {
+            System.err.println("ExpenseFileManager error: ${e.message}")
+            emptyList()
+        }
+    }
+
+    fun saveMessageTemplate(template: MessageTemplate): Unit = synchronized(lock) {
+        val currentList = getMessageTemplates().toMutableList()
+        val existingIndex = currentList.indexOfFirst { it.id == template.id }
+        if (existingIndex >= 0) {
+            currentList[existingIndex] = template.copy(updatedAt = System.currentTimeMillis())
+        } else {
+            currentList.add(0, template)
+        }
+        writeMessageTemplates(currentList)
+    }
+
+    fun deleteMessageTemplate(id: String): Boolean = synchronized(lock) {
+        val currentList = getMessageTemplates().toMutableList()
+        val removed = currentList.removeAll { it.id == id }
+        if (removed) {
+            writeMessageTemplates(currentList)
+        }
+        removed
+    }
+
+    fun toggleTemplate(id: String, isEnabled: Boolean): Boolean = synchronized(lock) {
+        val currentList = getMessageTemplates().toMutableList()
+        val index = currentList.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            currentList[index] = currentList[index].copy(
+                isEnabled = isEnabled,
+                updatedAt = System.currentTimeMillis()
+            )
+            writeMessageTemplates(currentList)
+            true
+        } else {
+            false
+        }
+    }
+
+    private fun writeMessageTemplates(templates: List<MessageTemplate>) {
+        try {
+            val jsonArray = JSONArray()
+            templates.forEach { jsonArray.put(it.toJsonObject()) }
+            writeAtomically(messageTemplatesFile, jsonArray.toString(2))
         } catch (e: Exception) {
             System.err.println("ExpenseFileManager error: ${e.message}")
         }

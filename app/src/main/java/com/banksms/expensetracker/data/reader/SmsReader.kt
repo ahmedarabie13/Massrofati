@@ -75,7 +75,8 @@ class SmsReader(private val context: Context) {
      */
     suspend fun readBankMessages(
         monitoredSenders: Set<String>,
-        sinceTimestamp: Long = 0L
+        sinceTimestamp: Long = 0L,
+        customTemplates: List<com.banksms.expensetracker.data.model.MessageTemplate> = emptyList()
     ): List<Transaction> = withContext(Dispatchers.IO) {
         if (monitoredSenders.isEmpty()) return@withContext emptyList()
 
@@ -117,7 +118,7 @@ class SmsReader(private val context: Context) {
                     val body = it.getString(bodyCol) ?: ""
                     val date = it.getLong(dateCol)
 
-                    val parsed = BankSmsParser.parse(body, sender)
+                    val parsed = BankSmsParser.parse(body, sender, customTemplates)
                     if (parsed != null) {
                         transactions.add(parsed.toTransaction(messageId, sender, date, body))
                     }

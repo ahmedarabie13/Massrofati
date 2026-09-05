@@ -65,7 +65,7 @@ fun MasariTopAppBar(
                         if (title == "Masari") {
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "مساري",
+                                text = "مصاري",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 11.sp

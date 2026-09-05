@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.banksms.expensetracker.data.model.BankSender
+import com.banksms.expensetracker.data.model.MessageTemplate
 import com.banksms.expensetracker.data.reader.DiscoveredSender
 import com.banksms.expensetracker.data.repository.TransactionRepository
 import kotlinx.coroutines.flow.*
@@ -11,36 +12,63 @@ import kotlinx.coroutines.launch
 
 data class BankSendersUiState(
     val senders: List<BankSender> = emptyList(),
+    val templates: List<MessageTemplate> = emptyList(),
+    val selectedTab: Int = 0, // 0 = Monitored Banks, 1 = SMS Templates
     val discoveredSenders: List<DiscoveredSender> = emptyList(),
     val isDiscovering: Boolean = false,
-    val showDiscoveredDialog: Boolean = false
+    val showDiscoveredDialog: Boolean = false,
+    val feedbackMessage: String? = null
 )
 
 class BankSendersViewModel(
     private val repository: TransactionRepository
 ) : ViewModel() {
 
+    private val _selectedTab = MutableStateFlow(0)
     private val _discoveredSenders = MutableStateFlow<List<DiscoveredSender>>(emptyList())
     private val _isDiscovering = MutableStateFlow(false)
     private val _showDiscoveredDialog = MutableStateFlow(false)
+    private val _feedbackMessage = MutableStateFlow<String?>(null)
 
-    val uiState: StateFlow<BankSendersUiState> = combine(
-        repository.getSendersWithStats(),
+    private data class DiscoveryState(
+        val discoveredSenders: List<DiscoveredSender> = emptyList(),
+        val isDiscovering: Boolean = false,
+        val showDiscoveredDialog: Boolean = false
+    )
+
+    private val _discoveryState = combine(
         _discoveredSenders,
         _isDiscovering,
         _showDiscoveredDialog
-    ) { senders, discovered, discovering, showDialog ->
+    ) { discovered, discovering, showDialog ->
+        DiscoveryState(discovered, discovering, showDialog)
+    }
+
+    val uiState: StateFlow<BankSendersUiState> = combine(
+        repository.getSendersWithStats(),
+        repository.messageTemplates,
+        _selectedTab,
+        _discoveryState,
+        _feedbackMessage
+    ) { senders, templates, tab, discovery, msg ->
         BankSendersUiState(
             senders = senders,
-            discoveredSenders = discovered,
-            isDiscovering = discovering,
-            showDiscoveredDialog = showDialog
+            templates = templates,
+            selectedTab = tab,
+            discoveredSenders = discovery.discoveredSenders,
+            isDiscovering = discovery.isDiscovering,
+            showDiscoveredDialog = discovery.showDiscoveredDialog,
+            feedbackMessage = msg
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = BankSendersUiState()
     )
+
+    fun selectTab(tabIndex: Int) {
+        _selectedTab.value = tabIndex
+    }
 
     fun toggleMonitored(sender: BankSender) {
         viewModelScope.launch {
@@ -58,14 +86,44 @@ class BankSendersViewModel(
                     isMonitored = true
                 )
             )
+            _feedbackMessage.value = "Bank added successfully"
         }
     }
 
     fun deleteSender(sender: BankSender) {
         viewModelScope.launch {
             repository.deleteSender(sender)
+            _feedbackMessage.value = "Bank removed"
         }
     }
+
+    // ── Template Management ──────────────────────────────────────────────
+
+    fun saveTemplate(template: MessageTemplate) {
+        viewModelScope.launch {
+            repository.saveMessageTemplate(template)
+            _feedbackMessage.value = "Template '${template.name}' saved to file system"
+        }
+    }
+
+    fun deleteTemplate(id: String) {
+        viewModelScope.launch {
+            repository.deleteMessageTemplate(id)
+            _feedbackMessage.value = "Template deleted permanently"
+        }
+    }
+
+    fun toggleTemplate(id: String, isEnabled: Boolean) {
+        viewModelScope.launch {
+            repository.toggleMessageTemplate(id, isEnabled)
+        }
+    }
+
+    fun clearFeedbackMessage() {
+        _feedbackMessage.value = null
+    }
+
+    // ── Discovery ────────────────────────────────────────────────────────
 
     fun discoverFromInbox() {
         viewModelScope.launch {

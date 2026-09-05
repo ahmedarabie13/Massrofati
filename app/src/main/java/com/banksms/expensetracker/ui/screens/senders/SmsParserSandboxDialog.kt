@@ -14,14 +14,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.banksms.expensetracker.BankSmsApp
 import com.banksms.expensetracker.data.model.TransactionType
 import com.banksms.expensetracker.data.parser.BankSmsParser
 import com.banksms.expensetracker.data.parser.ParsedTransaction
-import com.banksms.expensetracker.ui.theme.ExpenseRed
-import com.banksms.expensetracker.ui.theme.IncomeGreen
+import com.banksms.expensetracker.ui.theme.ExpenseCoral
+import com.banksms.expensetracker.ui.theme.IncomeEmerald
+import com.banksms.expensetracker.ui.theme.MasariEmerald
 import com.banksms.expensetracker.util.CurrencyFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,7 +33,14 @@ fun SmsParserSandboxDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val senderOptions = listOf("Alinma", "AlinmaPay", "AlRajhiBank")
+    val context = LocalContext.current
+    val app = context.applicationContext as? BankSmsApp
+    val customTemplates = remember { app?.repository?.getMessageTemplates() ?: emptyList() }
+
+    val baseSenders = listOf("Alinma", "AlinmaPay", "AlRajhiBank", "SNB", "Other")
+    val customSenders = customTemplates.map { it.sender }.filter { it.isNotBlank() && it != "*" }
+    val senderOptions = (baseSenders + customSenders).distinct()
+
     var selectedSender by remember { mutableStateOf(senderOptions[0]) }
 
     var sampleSmsText by remember {
@@ -38,7 +48,9 @@ fun SmsParserSandboxDialog(
     }
 
     var parsedResult by remember {
-        mutableStateOf<ParsedTransaction?>(BankSmsParser.parse(sampleSmsText, "Alinma"))
+        mutableStateOf<ParsedTransaction?>(
+            BankSmsParser.parse(sampleSmsText, "Alinma", customTemplates)
+        )
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -66,7 +78,7 @@ fun SmsParserSandboxDialog(
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MasariEmerald
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
@@ -82,7 +94,7 @@ fun SmsParserSandboxDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "Select the bank sender and paste an SMS to preview how our engine parses it:",
+                    text = "Select a bank sender and paste an SMS to preview how built-in parsers and your custom templates extract the transaction:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -101,7 +113,7 @@ fun SmsParserSandboxDialog(
                             selected = selectedSender == sender,
                             onClick = {
                                 selectedSender = sender
-                                parsedResult = BankSmsParser.parse(sampleSmsText, sender)
+                                parsedResult = BankSmsParser.parse(sampleSmsText, sender, customTemplates)
                             },
                             label = { Text(sender) },
                             shape = RoundedCornerShape(16.dp)
@@ -115,7 +127,7 @@ fun SmsParserSandboxDialog(
                     value = sampleSmsText,
                     onValueChange = {
                         sampleSmsText = it
-                        parsedResult = BankSmsParser.parse(it, selectedSender)
+                        parsedResult = BankSmsParser.parse(it, selectedSender, customTemplates)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("Paste bank message here...") },
@@ -145,19 +157,20 @@ fun SmsParserSandboxDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No financial transaction detected in this message",
+                            text = "No financial transaction detected. Try adding a custom template in the SMS Templates tab.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 } else {
                     val isExpense = result.type == TransactionType.EXPENSE
-                    val amountColor = if (isExpense) ExpenseRed else IncomeGreen
+                    val amountColor = if (isExpense) ExpenseCoral else IncomeEmerald
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        border = CardDefaults.outlinedCardBorder(enabled = true)
                     ) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(
@@ -222,9 +235,10 @@ fun SmsParserSandboxDialog(
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald)
                 ) {
-                    Text("Close")
+                    Text("Close", fontWeight = FontWeight.Bold)
                 }
             }
         }

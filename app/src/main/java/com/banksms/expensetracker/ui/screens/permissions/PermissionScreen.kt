@@ -49,7 +49,7 @@ fun PermissionScreen(
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "مسارك المالي الذكي",
+            text = "مصاري - تتبع مصاريفك بذكاء",
             style = MaterialTheme.typography.titleSmall.copy(
                 fontWeight = FontWeight.SemiBold,
                 color = MasariEmerald

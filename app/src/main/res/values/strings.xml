@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Masari</string>
     <string name="app_tagline">Smart Financial &amp; Expense Tracker</string>
-    <string name="app_tagline_ar">مسارك المالي الذكي</string>
+    <string name="app_tagline_ar">مصاري - تتبع مصاريفك بذكاء</string>
     <string name="theme_toggle_description">Toggle app theme</string>
     <string name="sync_sms">Sync Bank SMS</string>
     <string name="syncing_sms">Scanning Bank SMS…</string>

@@ -31,6 +31,9 @@ class TransactionRepository(
     private val _skippedTransactions = MutableStateFlow<List<SkippedTransaction>>(fileManager.getSkippedTransactions())
     val skippedTransactions: StateFlow<List<SkippedTransaction>> = _skippedTransactions.asStateFlow()
 
+    private val _messageTemplates = MutableStateFlow<List<MessageTemplate>>(fileManager.getMessageTemplates())
+    val messageTemplates: StateFlow<List<MessageTemplate>> = _messageTemplates.asStateFlow()
+
     /**
      * Processes an incoming real-time SMS from BroadcastReceiver with full deduplication and skip filtering.
      * @return true if a new transaction was inserted, false if skipped or already exists.
@@ -55,7 +58,8 @@ class TransactionRepository(
             return@withContext false
         }
 
-        val parsed = BankSmsParser.parse(body, sender) ?: return@withContext false
+        val enabledTemplates = fileManager.getMessageTemplates().filter { it.isEnabled }
+        val parsed = BankSmsParser.parse(body, sender, enabledTemplates) ?: return@withContext false
 
         // Prevent inserting if this transaction is already present
         val existing = transactionDao.findDuplicate(
@@ -117,7 +121,8 @@ class TransactionRepository(
             }
 
             val monitoredSenderIds = monitored.map { it.senderId }.toSet()
-            val parsedTransactions = smsReader.readBankMessages(monitoredSenderIds)
+            val enabledTemplates = fileManager.getMessageTemplates().filter { it.isEnabled }
+            val parsedTransactions = smsReader.readBankMessages(monitoredSenderIds, customTemplates = enabledTemplates)
 
             if (parsedTransactions.isEmpty()) {
                 return@withContext SyncResult(0, 0)
@@ -250,6 +255,27 @@ class TransactionRepository(
 
     fun getSkippedTransactions(): List<SkippedTransaction> {
         return fileManager.getSkippedTransactions()
+    }
+
+    // ── Message Templates API ─────────────────────────────────────────────
+
+    fun getMessageTemplates(): List<MessageTemplate> {
+        return fileManager.getMessageTemplates()
+    }
+
+    suspend fun saveMessageTemplate(template: MessageTemplate) = withContext(Dispatchers.IO) {
+        fileManager.saveMessageTemplate(template)
+        _messageTemplates.value = fileManager.getMessageTemplates()
+    }
+
+    suspend fun deleteMessageTemplate(id: String) = withContext(Dispatchers.IO) {
+        fileManager.deleteMessageTemplate(id)
+        _messageTemplates.value = fileManager.getMessageTemplates()
+    }
+
+    suspend fun toggleMessageTemplate(id: String, isEnabled: Boolean) = withContext(Dispatchers.IO) {
+        fileManager.toggleTemplate(id, isEnabled)
+        _messageTemplates.value = fileManager.getMessageTemplates()
     }
 
     // ── Queries & Stats ───────────────────────────────────────────────────
