@@ -12,5 +12,7 @@ data class Transaction(
     val availableBalance: Double? = null,
     val category: String = "General",
     val timestamp: Long = System.currentTimeMillis(),
-    val rawBody: String = ""
+    val rawBody: String = "",
+    val isManual: Boolean = false,
+    val manualId: String? = null
 )

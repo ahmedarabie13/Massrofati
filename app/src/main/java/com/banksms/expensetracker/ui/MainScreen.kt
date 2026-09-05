@@ -27,6 +27,8 @@ import com.banksms.expensetracker.ui.screens.reports.ReportsScreen
 import com.banksms.expensetracker.ui.screens.reports.ReportsViewModel
 import com.banksms.expensetracker.ui.screens.senders.BankSendersScreen
 import com.banksms.expensetracker.ui.screens.senders.BankSendersViewModel
+import com.banksms.expensetracker.ui.screens.skipped.SkippedScreen
+import com.banksms.expensetracker.ui.screens.skipped.SkippedViewModel
 import com.banksms.expensetracker.ui.screens.transactions.TransactionsScreen
 import com.banksms.expensetracker.ui.screens.transactions.TransactionsViewModel
 
@@ -71,6 +73,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
             val dashboardViewModel: DashboardViewModel = viewModel(factory = DashboardViewModel.Factory(repository))
             val transactionsViewModel: TransactionsViewModel = viewModel(factory = TransactionsViewModel.Factory(repository))
+            val skippedViewModel: SkippedViewModel = viewModel(factory = SkippedViewModel.Factory(repository))
             val reportsViewModel: ReportsViewModel = viewModel(factory = ReportsViewModel.Factory(repository))
             val sendersViewModel: BankSendersViewModel = viewModel(factory = BankSendersViewModel.Factory(repository))
 
@@ -132,6 +135,10 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     composable(Screen.Transactions.route) {
                         TransactionsScreen(viewModel = transactionsViewModel)
+                    }
+
+                    composable(Screen.Skipped.route) {
+                        com.banksms.expensetracker.ui.screens.skipped.SkippedScreen(viewModel = skippedViewModel)
                     }
 
                     composable(Screen.Reports.route) {

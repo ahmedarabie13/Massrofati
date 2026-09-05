@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
         TransactionEntity::class,
         BankSenderEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

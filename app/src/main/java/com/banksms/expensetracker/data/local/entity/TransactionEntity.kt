@@ -12,7 +12,8 @@ import com.banksms.expensetracker.data.model.TransactionType
         Index(value = ["messageId"], unique = true),
         Index(value = ["sender"]),
         Index(value = ["timestamp"]),
-        Index(value = ["type"])
+        Index(value = ["type"]),
+        Index(value = ["manualId"])
     ]
 )
 data class TransactionEntity(
@@ -28,7 +29,9 @@ data class TransactionEntity(
     val availableBalance: Double?,
     val category: String,
     val timestamp: Long,
-    val rawBody: String
+    val rawBody: String,
+    val isManual: Boolean = false,
+    val manualId: String? = null
 ) {
     fun toDomain(): Transaction = Transaction(
         id = id,
@@ -42,7 +45,9 @@ data class TransactionEntity(
         availableBalance = availableBalance,
         category = category,
         timestamp = timestamp,
-        rawBody = rawBody
+        rawBody = rawBody,
+        isManual = isManual,
+        manualId = manualId
     )
 
     companion object {
@@ -58,7 +63,9 @@ data class TransactionEntity(
             availableBalance = transaction.availableBalance,
             category = transaction.category,
             timestamp = transaction.timestamp,
-            rawBody = transaction.rawBody
+            rawBody = transaction.rawBody,
+            isManual = transaction.isManual,
+            manualId = transaction.manualId
         )
     }
 }

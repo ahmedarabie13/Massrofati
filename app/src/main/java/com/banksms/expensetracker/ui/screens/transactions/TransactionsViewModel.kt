@@ -3,6 +3,7 @@ package com.banksms.expensetracker.ui.screens.transactions
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.banksms.expensetracker.data.file.ManualExpense
 import com.banksms.expensetracker.data.model.BankSender
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.model.TransactionType
@@ -101,6 +102,30 @@ class TransactionsViewModel(
 
     fun setDateRangePreset(preset: DateRangePreset) {
         _dateRange.value = DateUtils.getDateRange(preset)
+    }
+
+    fun addManualExpense(expense: ManualExpense) {
+        viewModelScope.launch {
+            repository.addManualExpense(expense)
+        }
+    }
+
+    fun updateManualExpense(expense: ManualExpense) {
+        viewModelScope.launch {
+            repository.updateManualExpense(expense)
+        }
+    }
+
+    fun deleteManualExpense(manualId: String) {
+        viewModelScope.launch {
+            repository.deleteManualExpense(manualId)
+        }
+    }
+
+    fun skipTransaction(transaction: Transaction) {
+        viewModelScope.launch {
+            repository.skipTransaction(transaction)
+        }
     }
 
     fun deleteTransaction(id: Long) {

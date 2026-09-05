@@ -186,7 +186,9 @@ fun DashboardScreen(
         selectedTransactionForDetail?.let { tx ->
             TransactionDetailDialog(
                 transaction = tx,
-                onDismiss = { selectedTransactionForDetail = null }
+                onDismiss = { selectedTransactionForDetail = null },
+                onSkipTransaction = { viewModel.skipTransaction(it) },
+                onDeleteManual = { viewModel.deleteManualExpense(it) }
             )
         }
     }

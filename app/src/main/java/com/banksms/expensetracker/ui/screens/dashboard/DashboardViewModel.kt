@@ -82,6 +82,20 @@ class DashboardViewModel(
         }
     }
 
+    fun skipTransaction(transaction: Transaction) {
+        viewModelScope.launch {
+            repository.skipTransaction(transaction)
+            _syncMessage.value = "Transaction marked as skipped"
+        }
+    }
+
+    fun deleteManualExpense(manualId: String) {
+        viewModelScope.launch {
+            repository.deleteManualExpense(manualId)
+            _syncMessage.value = "Manual expense deleted permanently"
+        }
+    }
+
     fun clearSyncMessage() {
         _syncMessage.value = null
     }

@@ -5,10 +5,12 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(
@@ -31,6 +33,13 @@ sealed class Screen(
         unselectedIcon = Icons.Outlined.ReceiptLong
     )
 
+    object Skipped : Screen(
+        route = "skipped",
+        title = "Skipped",
+        selectedIcon = Icons.Filled.VisibilityOff,
+        unselectedIcon = Icons.Outlined.VisibilityOff
+    )
+
     object Reports : Screen(
         route = "reports",
         title = "Reports",
@@ -46,6 +55,6 @@ sealed class Screen(
     )
 
     companion object {
-        val items = listOf(Dashboard, Transactions, Reports, Senders)
+        val items = listOf(Dashboard, Transactions, Skipped, Reports, Senders)
     }
 }

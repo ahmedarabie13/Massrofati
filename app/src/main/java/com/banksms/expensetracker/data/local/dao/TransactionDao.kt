@@ -50,6 +50,18 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE messageId = :messageId LIMIT 1")
     suspend fun getByMessageId(messageId: Long): TransactionEntity?
 
+    @Query("DELETE FROM transactions WHERE messageId = :messageId")
+    suspend fun deleteByMessageId(messageId: Long)
+
+    @Query("SELECT * FROM transactions WHERE manualId = :manualId LIMIT 1")
+    suspend fun getByManualId(manualId: String): TransactionEntity?
+
+    @Query("DELETE FROM transactions WHERE manualId = :manualId")
+    suspend fun deleteByManualId(manualId: String)
+
+    @Query("SELECT manualId FROM transactions WHERE isManual = 1 AND manualId IS NOT NULL")
+    suspend fun getAllManualIds(): List<String>
+
     @Query("""
         SELECT * FROM transactions 
         WHERE sender = :sender 

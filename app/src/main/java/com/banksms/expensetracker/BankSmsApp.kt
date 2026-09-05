@@ -1,6 +1,7 @@
 package com.banksms.expensetracker
 
 import android.app.Application
+import com.banksms.expensetracker.data.file.ExpenseFileManager
 import com.banksms.expensetracker.data.local.AppDatabase
 import com.banksms.expensetracker.data.reader.SmsReader
 import com.banksms.expensetracker.data.repository.TransactionRepository
@@ -10,6 +11,9 @@ class BankSmsApp : Application() {
     lateinit var database: AppDatabase
         private set
 
+    lateinit var fileManager: ExpenseFileManager
+        private set
+
     lateinit var repository: TransactionRepository
         private set
 
@@ -17,10 +21,12 @@ class BankSmsApp : Application() {
         super.onCreate()
         database = AppDatabase.getInstance(this)
         val smsReader = SmsReader(this)
+        fileManager = ExpenseFileManager(this)
         repository = TransactionRepository(
             transactionDao = database.transactionDao(),
             bankSenderDao = database.bankSenderDao(),
-            smsReader = smsReader
+            smsReader = smsReader,
+            fileManager = fileManager
         )
     }
 }

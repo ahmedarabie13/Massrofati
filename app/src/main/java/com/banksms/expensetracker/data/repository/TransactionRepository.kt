@@ -1,5 +1,8 @@
 package com.banksms.expensetracker.data.repository
 
+import com.banksms.expensetracker.data.file.ExpenseFileManager
+import com.banksms.expensetracker.data.file.ManualExpense
+import com.banksms.expensetracker.data.file.SkippedTransaction
 import com.banksms.expensetracker.data.local.dao.BankSenderDao
 import com.banksms.expensetracker.data.local.dao.TransactionDao
 import com.banksms.expensetracker.data.local.entity.BankSenderEntity
@@ -9,9 +12,7 @@ import com.banksms.expensetracker.data.parser.BankSmsParser
 import com.banksms.expensetracker.data.reader.DiscoveredSender
 import com.banksms.expensetracker.data.reader.SmsReader
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
 
 data class SyncResult(
@@ -23,11 +24,15 @@ data class SyncResult(
 class TransactionRepository(
     private val transactionDao: TransactionDao,
     private val bankSenderDao: BankSenderDao,
-    private val smsReader: SmsReader
+    private val smsReader: SmsReader,
+    private val fileManager: ExpenseFileManager
 ) {
 
+    private val _skippedTransactions = MutableStateFlow<List<SkippedTransaction>>(fileManager.getSkippedTransactions())
+    val skippedTransactions: StateFlow<List<SkippedTransaction>> = _skippedTransactions.asStateFlow()
+
     /**
-     * Processes an incoming real-time SMS from BroadcastReceiver with full deduplication.
+     * Processes an incoming real-time SMS from BroadcastReceiver with full deduplication and skip filtering.
      * @return true if a new transaction was inserted, false if skipped or already exists.
      */
     suspend fun processIncomingSms(
@@ -44,6 +49,11 @@ class TransactionRepository(
             senderLower == it || senderLower.contains(it) || it.contains(senderLower)
         }
         if (!isMonitored) return@withContext false
+
+        // Check if this transaction is marked as skipped in the file
+        if (fileManager.isSkipped(0L, sender, timestamp, body)) {
+            return@withContext false
+        }
 
         val parsed = BankSmsParser.parse(body, sender) ?: return@withContext false
 
@@ -70,14 +80,37 @@ class TransactionRepository(
     }
 
     /**
-     * Scans the SMS inbox for all monitored bank senders and imports new transactions into Room DB.
-     * Deduplicates against existing transactions to prevent double-counting.
+     * Scans both SMS messages and the local manual expenses file.
+     * Deduplicates against existing transactions and respects skipped transaction records.
      */
     suspend fun syncTransactionsFromSms(): SyncResult = withContext(Dispatchers.IO) {
         try {
-            // Clean up any historical duplicate transactions first
+            // 1. Clean up any historical duplicate transactions
             transactionDao.deleteDuplicates()
 
+            // 2. Refresh and enforce skipped transactions from the file
+            val skippedList = fileManager.getSkippedTransactions()
+            _skippedTransactions.value = skippedList
+            for (skipped in skippedList) {
+                if (skipped.originalMessageId != 0L) {
+                    transactionDao.deleteByMessageId(skipped.originalMessageId)
+                }
+                val dup = transactionDao.findDuplicate(
+                    sender = skipped.sender,
+                    amount = skipped.amount,
+                    type = skipped.type.name,
+                    rawBody = skipped.rawBody,
+                    timestamp = skipped.timestamp
+                )
+                if (dup != null) {
+                    transactionDao.delete(dup)
+                }
+            }
+
+            // 3. Scan manual expenses from manual_expenses.json
+            syncManualExpensesFromFile()
+
+            // 4. Scan SMS inbox
             val monitored = bankSenderDao.getMonitoredSendersSync()
             if (monitored.isEmpty()) {
                 return@withContext SyncResult(0, 0, listOf("No monitored bank senders configured. Please enable banks in Settings."))
@@ -92,6 +125,11 @@ class TransactionRepository(
 
             var newlyImported = 0
             for (transaction in parsedTransactions) {
+                // Skip if user marked this transaction as skipped in the file
+                if (fileManager.isSkipped(transaction.messageId, transaction.sender, transaction.timestamp, transaction.rawBody)) {
+                    continue
+                }
+
                 val entity = TransactionEntity.fromDomain(transaction)
 
                 // Check 1: Already exists with this exact messageId?
@@ -131,6 +169,90 @@ class TransactionRepository(
             SyncResult(0, 0, listOf(e.localizedMessage ?: "Unknown sync error"))
         }
     }
+
+    /**
+     * Synchronizes manual expenses from manual_expenses.json into Room.
+     * Reconciles any deleted manual expenses.
+     */
+    private suspend fun syncManualExpensesFromFile() {
+        val manualExpenses = fileManager.getManualExpenses()
+        val currentFileIds = manualExpenses.map { it.id }.toSet()
+
+        // Remove any manual entries from Room that were deleted from the file
+        val existingDbManualIds = transactionDao.getAllManualIds()
+        for (dbId in existingDbManualIds) {
+            if (!currentFileIds.contains(dbId)) {
+                transactionDao.deleteByManualId(dbId)
+            }
+        }
+
+        // Upsert all manual expenses from the file
+        for (expense in manualExpenses) {
+            val transaction = expense.toTransaction()
+            val existing = transactionDao.getByManualId(expense.id)
+            if (existing != null) {
+                val updated = TransactionEntity.fromDomain(transaction).copy(id = existing.id)
+                transactionDao.update(updated)
+            } else {
+                transactionDao.insert(TransactionEntity.fromDomain(transaction))
+            }
+        }
+    }
+
+    // ── Manual Expenses API ───────────────────────────────────────────────
+
+    suspend fun addManualExpense(expense: ManualExpense) = withContext(Dispatchers.IO) {
+        fileManager.saveManualExpense(expense)
+        val transaction = expense.toTransaction()
+        transactionDao.insert(TransactionEntity.fromDomain(transaction))
+    }
+
+    suspend fun updateManualExpense(expense: ManualExpense) = withContext(Dispatchers.IO) {
+        fileManager.saveManualExpense(expense)
+        val existing = transactionDao.getByManualId(expense.id)
+        val transaction = expense.toTransaction()
+        if (existing != null) {
+            val updated = TransactionEntity.fromDomain(transaction).copy(id = existing.id)
+            transactionDao.update(updated)
+        } else {
+            transactionDao.insert(TransactionEntity.fromDomain(transaction))
+        }
+    }
+
+    suspend fun deleteManualExpense(manualId: String) = withContext(Dispatchers.IO) {
+        fileManager.deleteManualExpense(manualId)
+        transactionDao.deleteByManualId(manualId)
+    }
+
+    fun getManualExpenses(): List<ManualExpense> {
+        return fileManager.getManualExpenses()
+    }
+
+    // ── Skipped Transactions API ──────────────────────────────────────────
+
+    suspend fun skipTransaction(transaction: Transaction, reason: String = "User skipped") = withContext(Dispatchers.IO) {
+        val skipped = SkippedTransaction.fromTransaction(transaction, reason)
+        fileManager.addSkippedTransaction(skipped)
+        _skippedTransactions.value = fileManager.getSkippedTransactions()
+
+        if (transaction.messageId != 0L) {
+            transactionDao.deleteByMessageId(transaction.messageId)
+        }
+        transactionDao.deleteById(transaction.id)
+    }
+
+    suspend fun unskipTransaction(skipped: SkippedTransaction) = withContext(Dispatchers.IO) {
+        fileManager.removeSkippedTransaction(skipped)
+        _skippedTransactions.value = fileManager.getSkippedTransactions()
+        // Re-sync inbox so this transaction is immediately restored to active log
+        syncTransactionsFromSms()
+    }
+
+    fun getSkippedTransactions(): List<SkippedTransaction> {
+        return fileManager.getSkippedTransactions()
+    }
+
+    // ── Queries & Stats ───────────────────────────────────────────────────
 
     /**
      * Discovers all sender addresses in SMS inbox so user can pick which ones are their banks.

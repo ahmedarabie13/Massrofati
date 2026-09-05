@@ -6,6 +6,7 @@ import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
 import com.banksms.expensetracker.BankSmsApp
+import com.banksms.expensetracker.data.file.ExpenseFileManager
 import com.banksms.expensetracker.data.local.AppDatabase
 import com.banksms.expensetracker.data.reader.SmsReader
 import com.banksms.expensetracker.data.repository.TransactionRepository
@@ -28,7 +29,8 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
             TransactionRepository(
                 transactionDao = db.transactionDao(),
                 bankSenderDao = db.bankSenderDao(),
-                smsReader = SmsReader(context)
+                smsReader = SmsReader(context),
+                fileManager = ExpenseFileManager(context)
             )
         }
 
