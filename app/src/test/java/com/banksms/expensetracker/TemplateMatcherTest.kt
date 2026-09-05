@@ -154,4 +154,34 @@ class TemplateMatcherTest {
         val parsed = BankSmsParser.parse(sms, "AnyBank", listOf(disabledTemplate))
         assertNull(parsed)
     }
+
+    @Test
+    fun testIncomingTransferTemplate() {
+        val template = MessageTemplate(
+            id = "default_tpl_incoming_transfer",
+            name = "Incoming Transfer (حوالة واردة)",
+            sender = "*",
+            pattern = "حوالة واردة {amount} {currency}\nمن {merchant}; {account}\nفي {time} {date}",
+            defaultType = TransactionType.INCOME,
+            defaultCurrency = "SAR",
+            defaultCategory = "Income / Deposits"
+        )
+
+        val sms = """
+            حوالة واردة 5 ريال
+            من AHMED GAMA*; *1001
+            في 04:23 26-09-05
+        """.trimIndent()
+
+        val testResult = TemplateMatcher.test(template, sms)
+        assertTrue("Test result should match: ${testResult.errorMessage}", testResult.isMatch)
+        val parsed = testResult.parsedTransaction
+        assertNotNull(parsed)
+        assertEquals(5.0, parsed!!.amount, 0.001)
+        assertEquals("SAR", parsed.currency)
+        assertEquals("AHMED GAMA*", parsed.merchant)
+        assertEquals("**1001", parsed.accountOrCard)
+        assertEquals(TransactionType.INCOME, parsed.type)
+        assertEquals("Income / Deposits", parsed.category)
+    }
 }

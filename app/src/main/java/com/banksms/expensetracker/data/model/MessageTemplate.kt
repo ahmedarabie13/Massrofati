@@ -99,6 +99,16 @@ data class MessageTemplate(
                 defaultCurrency = "SAR",
                 defaultCategory = "General",
                 isEnabled = true
+            ),
+            MessageTemplate(
+                id = "default_tpl_incoming_transfer",
+                name = "حوالة واردة (Incoming Transfer)",
+                sender = "*",
+                pattern = "حوالة واردة {amount} {currency}\nمن {merchant}; {account}\nفي {time} {date}",
+                defaultType = TransactionType.INCOME,
+                defaultCurrency = "SAR",
+                defaultCategory = "Income / Deposits",
+                isEnabled = true
             )
         )
     }
