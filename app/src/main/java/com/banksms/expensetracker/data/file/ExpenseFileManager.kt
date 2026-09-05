@@ -1,6 +1,8 @@
 package com.banksms.expensetracker.data.file
 
 import android.content.Context
+import android.os.Environment
+import com.banksms.expensetracker.data.model.BankSender
 import com.banksms.expensetracker.data.model.MessageTemplate
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.model.TransactionType
@@ -98,7 +100,7 @@ data class SkippedTransaction(
     val merchant: String? = null,
     val category: String = "General",
     val rawBody: String = "",
-    val timestamp: Long,
+    val timestamp: Long = System.currentTimeMillis(),
     val skippedAt: Long = System.currentTimeMillis(),
     val reason: String = "User skipped"
 ) {
@@ -159,26 +161,75 @@ data class SkippedTransaction(
 
 class ExpenseFileManager(
     private val context: Context? = null,
-    baseDirectory: File? = null
+    private val baseDirectory: File? = null
 ) {
 
-    private val dataDir: File by lazy {
-        val dir = baseDirectory ?: File(context?.filesDir ?: File("."), "data")
-        if (!dir.exists()) dir.mkdirs()
-        dir
+    val dataDir: File
+        get() {
+            if (baseDirectory != null) {
+                if (!baseDirectory.exists()) baseDirectory.mkdirs()
+                return baseDirectory
+            }
+
+            // 1. Try public Documents/Masari outside app sandboxed data folder
+            try {
+                val publicDocs = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                val masariDir = File(publicDocs, "Masari")
+                if (!masariDir.exists()) masariDir.mkdirs()
+                if (masariDir.exists() && masariDir.canWrite()) {
+                    migrateInternalToExternalIfNeeded(masariDir)
+                    return masariDir
+                }
+            } catch (_: Throwable) {}
+
+            // 2. Try root ExternalStorage/Documents/Masari
+            try {
+                val extDocs = File(Environment.getExternalStorageDirectory(), "Documents/Masari")
+                if (!extDocs.exists()) extDocs.mkdirs()
+                if (extDocs.exists() && extDocs.canWrite()) {
+                    migrateInternalToExternalIfNeeded(extDocs)
+                    return extDocs
+                }
+            } catch (_: Throwable) {}
+
+            // 3. Fallback to app private directory if external is not yet permitted
+            val fallbackDir = File(context?.filesDir ?: File("."), "Masari")
+            if (!fallbackDir.exists()) fallbackDir.mkdirs()
+            return fallbackDir
+        }
+
+    fun getStorageDirectoryPath(): String = dataDir.absolutePath
+
+    fun isPublicStorageActive(): Boolean {
+        val path = dataDir.absolutePath
+        return !path.contains("/data/user/") && !path.contains("/data/data/") &&
+                (path.contains("Documents/Masari") || path.contains("Masari"))
     }
 
-    private val manualExpensesFile: File by lazy {
-        File(dataDir, "manual_expenses.json")
+    private fun migrateInternalToExternalIfNeeded(targetDir: File) {
+        try {
+            val legacyDir = File(context?.filesDir ?: return, "data")
+            if (!legacyDir.exists() || !legacyDir.isDirectory) return
+            val filesToMigrate = listOf(
+                "manual_expenses.json",
+                "skipped_transactions.json",
+                "message_templates.json",
+                "monitored_banks.json"
+            )
+            for (filename in filesToMigrate) {
+                val oldFile = File(legacyDir, filename)
+                val newFile = File(targetDir, filename)
+                if (oldFile.exists() && !newFile.exists()) {
+                    oldFile.copyTo(newFile, overwrite = true)
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
-    private val skippedTransactionsFile: File by lazy {
-        File(dataDir, "skipped_transactions.json")
-    }
-
-    private val messageTemplatesFile: File by lazy {
-        File(dataDir, "message_templates.json")
-    }
+    val manualExpensesFile: File get() = File(dataDir, "manual_expenses.json")
+    val skippedTransactionsFile: File get() = File(dataDir, "skipped_transactions.json")
+    val messageTemplatesFile: File get() = File(dataDir, "message_templates.json")
+    val monitoredBanksFile: File get() = File(dataDir, "monitored_banks.json")
 
     private val lock = Any()
 
@@ -371,6 +422,101 @@ class ExpenseFileManager(
         } catch (e: Exception) {
             System.err.println("ExpenseFileManager error: ${e.message}")
         }
+    }
+
+    // ── Monitored Banks Operations ────────────────────────────────────────
+
+    fun getMonitoredBanks(): List<BankSender> = synchronized(lock) {
+        if (!monitoredBanksFile.exists()) {
+            val initial = BankSender.defaultSenders
+            writeMonitoredBanks(initial)
+            return initial
+        }
+        try {
+            val content = monitoredBanksFile.readText()
+            if (content.isBlank()) return BankSender.defaultSenders
+            val jsonArray = JSONArray(content)
+            val result = mutableListOf<BankSender>()
+            for (i in 0 until jsonArray.length()) {
+                result.add(BankSender.fromJsonObject(jsonArray.getJSONObject(i)))
+            }
+            if (result.isEmpty()) BankSender.defaultSenders else result
+        } catch (e: Exception) {
+            System.err.println("ExpenseFileManager error reading banks: ${e.message}")
+            BankSender.defaultSenders
+        }
+    }
+
+    fun saveMonitoredBank(bank: BankSender): Unit = synchronized(lock) {
+        val currentList = getMonitoredBanks().toMutableList()
+        val existingIndex = currentList.indexOfFirst { it.senderId.equals(bank.senderId, ignoreCase = true) }
+        if (existingIndex >= 0) {
+            currentList[existingIndex] = bank
+        } else {
+            currentList.add(bank)
+        }
+        writeMonitoredBanks(currentList)
+    }
+
+    fun updateMonitoredBank(oldSenderId: String, updated: BankSender): Unit = synchronized(lock) {
+        val currentList = getMonitoredBanks().toMutableList()
+        val existingIndex = currentList.indexOfFirst { it.senderId.equals(oldSenderId, ignoreCase = true) }
+        if (existingIndex >= 0) {
+            currentList[existingIndex] = updated
+        } else {
+            currentList.add(updated)
+        }
+        writeMonitoredBanks(currentList)
+    }
+
+    fun deleteMonitoredBank(senderId: String): Boolean = synchronized(lock) {
+        val currentList = getMonitoredBanks().toMutableList()
+        val removed = currentList.removeAll { it.senderId.equals(senderId, ignoreCase = true) }
+        if (removed) {
+            writeMonitoredBanks(currentList)
+        }
+        removed
+    }
+
+    fun toggleMonitoredBank(senderId: String, isMonitored: Boolean): Boolean = synchronized(lock) {
+        val currentList = getMonitoredBanks().toMutableList()
+        val index = currentList.indexOfFirst { it.senderId.equals(senderId, ignoreCase = true) }
+        if (index >= 0) {
+            currentList[index] = currentList[index].copy(isMonitored = isMonitored)
+            writeMonitoredBanks(currentList)
+            true
+        } else {
+            false
+        }
+    }
+
+    fun writeMonitoredBanks(banks: List<BankSender>) {
+        try {
+            val jsonArray = JSONArray()
+            banks.forEach { jsonArray.put(it.toJsonObject()) }
+            writeAtomically(monitoredBanksFile, jsonArray.toString(2))
+        } catch (e: Exception) {
+            System.err.println("ExpenseFileManager error: ${e.message}")
+        }
+    }
+
+    // ── Persistent Files Wiper ────────────────────────────────────────────
+
+    fun clearAllFiles(): Boolean = synchronized(lock) {
+        var allSuccess = true
+        val files = listOf(
+            manualExpensesFile,
+            skippedTransactionsFile,
+            messageTemplatesFile,
+            monitoredBanksFile
+        )
+        for (f in files) {
+            if (f.exists()) {
+                val deleted = f.delete()
+                if (!deleted) allSuccess = false
+            }
+        }
+        allSuccess
     }
 
     private fun writeAtomically(targetFile: File, content: String) {

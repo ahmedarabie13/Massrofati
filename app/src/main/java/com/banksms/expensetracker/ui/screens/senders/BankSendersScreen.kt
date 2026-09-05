@@ -1,5 +1,11 @@
 package com.banksms.expensetracker.ui.screens.senders
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,12 +41,36 @@ fun BankSendersScreen(
     viewModel: BankSendersViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
     var showAddBankDialog by remember { mutableStateOf(false) }
+    var editingBank by remember { mutableStateOf<BankSender?>(null) }
+    var bankToDelete by remember { mutableStateOf<BankSender?>(null) }
+    var showClearFilesDialog by remember { mutableStateOf(false) }
     var showSandboxDialog by remember { mutableStateOf(false) }
     var showAddTemplateDialog by remember { mutableStateOf(false) }
     var editingTemplate by remember { mutableStateOf<MessageTemplate?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    val isAllFilesGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+    } else {
+        true
+    }
+
+    fun requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+                context.startActivity(intent)
+            } catch (_: Exception) {
+                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                context.startActivity(intent)
+            }
+        }
+    }
 
     LaunchedEffect(state.feedbackMessage) {
         state.feedbackMessage?.let { msg ->
@@ -161,6 +192,16 @@ fun BankSendersScreen(
                 ) {
                     item {
                         Spacer(modifier = Modifier.height(10.dp))
+                        StoragePersistenceCard(
+                            storagePath = state.storagePath,
+                            isPublicStorage = state.isPublicStorageActive,
+                            isAllFilesGranted = isAllFilesGranted,
+                            onRequestPermission = { requestAllFilesAccess() },
+                            onClearFiles = { showClearFilesDialog = true }
+                        )
+                    }
+
+                    item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(18.dp),
@@ -176,7 +217,7 @@ fun BankSendersScreen(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Toggle on the banks you have accounts with. Only incoming messages from active banks will be scanned and reflected in your expenses.",
+                                    text = "Manage your monitored banks. You can add, edit, or remove banks at any time. Configurations are stored in monitored_banks.json in the file system.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -188,7 +229,8 @@ fun BankSendersScreen(
                         BankSenderItem(
                             sender = sender,
                             onToggle = { viewModel.toggleMonitored(sender) },
-                            onDelete = { viewModel.deleteSender(sender) }
+                            onEdit = { editingBank = sender },
+                            onDelete = { bankToDelete = sender }
                         )
                     }
 
@@ -276,12 +318,46 @@ fun BankSendersScreen(
         }
 
         if (showAddBankDialog) {
-            AddBankDialog(
-                onAdd = { id, name ->
-                    viewModel.addSender(id, name)
+            AddEditBankDialog(
+                initialBank = null,
+                onDismiss = { showAddBankDialog = false },
+                onSave = { _, newBank ->
+                    viewModel.addSender(newBank.senderId, newBank.displayName, newBank.customRegex)
                     showAddBankDialog = false
-                },
-                onDismiss = { showAddBankDialog = false }
+                }
+            )
+        }
+
+        editingBank?.let { bank ->
+            AddEditBankDialog(
+                initialBank = bank,
+                onDismiss = { editingBank = null },
+                onSave = { oldId, updatedBank ->
+                    viewModel.updateSender(oldId ?: updatedBank.senderId, updatedBank)
+                    editingBank = null
+                }
+            )
+        }
+
+        bankToDelete?.let { bank ->
+            DeleteBankConfirmDialog(
+                bank = bank,
+                onDismiss = { bankToDelete = null },
+                onConfirm = {
+                    viewModel.deleteSender(bank)
+                    bankToDelete = null
+                }
+            )
+        }
+
+        if (showClearFilesDialog) {
+            ClearFilesConfirmDialog(
+                storagePath = state.storagePath,
+                onDismiss = { showClearFilesDialog = false },
+                onConfirm = {
+                    viewModel.clearAllPersistenceFiles()
+                    showClearFilesDialog = false
+                }
             )
         }
 
@@ -443,6 +519,7 @@ private fun MessageTemplateCard(
 private fun BankSenderItem(
     sender: BankSender,
     onToggle: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -478,16 +555,48 @@ private fun BankSenderItem(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(3.dp))
 
-                Text(
-                    text = "${sender.totalTransactionsCount} transactions recorded",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "SMS ID: ${sender.senderId}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "•",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "${sender.totalTransactionsCount} txs",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onEdit, modifier = Modifier.size(34.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Bank",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = "Delete Bank",
+                        tint = ExpenseCoral,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(2.dp))
                 Switch(
                     checked = sender.isMonitored,
                     onCheckedChange = { onToggle() },
@@ -502,51 +611,101 @@ private fun BankSenderItem(
 }
 
 @Composable
-private fun AddBankDialog(
-    onAdd: (senderId: String, displayName: String) -> Unit,
-    onDismiss: () -> Unit
+private fun AddEditBankDialog(
+    initialBank: BankSender?,
+    onDismiss: () -> Unit,
+    onSave: (oldSenderId: String?, updated: BankSender) -> Unit
 ) {
-    var senderId by remember { mutableStateOf("") }
-    var displayName by remember { mutableStateOf("") }
+    val isEditing = initialBank != null
+    var senderId by remember { mutableStateOf(initialBank?.senderId ?: "") }
+    var displayName by remember { mutableStateOf(initialBank?.displayName ?: "") }
+    var customRegex by remember { mutableStateOf(initialBank?.customRegex ?: "") }
+    var isMonitored by remember { mutableStateOf(initialBank?.isMonitored ?: true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Monitored Bank", fontWeight = FontWeight.Bold) },
+        title = {
+            Text(
+                text = if (isEditing) "Edit Monitored Bank" else "Add Monitored Bank",
+                fontWeight = FontWeight.Bold
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Enter the SMS sender ID (as shown in your messages app, e.g. 'alinma', 'alrajhibank', 'alinmapay', 'SNB').",
+                    text = "The SMS Sender ID must match the sender name shown in your messages app (e.g. 'alinma', 'alrajhibank', 'SNB').",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 OutlinedTextField(
-                    value = senderId,
-                    onValueChange = { senderId = it },
-                    label = { Text("Sender ID *") },
+                    value = displayName,
+                    onValueChange = { displayName = it },
+                    label = { Text("Bank Name *") },
+                    placeholder = { Text("e.g. Alinma Bank") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
 
                 OutlinedTextField(
-                    value = displayName,
-                    onValueChange = { displayName = it },
-                    label = { Text("Display Name (optional)") },
+                    value = senderId,
+                    onValueChange = { senderId = it },
+                    label = { Text("SMS Sender ID *") },
+                    placeholder = { Text("e.g. alinma") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
+
+                OutlinedTextField(
+                    value = customRegex,
+                    onValueChange = { customRegex = it },
+                    label = { Text("Custom Pattern / Note (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Active Monitoring",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                    )
+                    Switch(
+                        checked = isMonitored,
+                        onCheckedChange = { isMonitored = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                            checkedTrackColor = MasariEmerald
+                        )
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = { onAdd(senderId, displayName) },
+                onClick = {
+                    val finalName = displayName.trim().ifBlank { senderId.trim() }
+                    val updated = BankSender(
+                        senderId = senderId.trim(),
+                        displayName = finalName,
+                        isMonitored = isMonitored,
+                        customRegex = customRegex.trim().takeIf { it.isNotBlank() },
+                        totalTransactionsCount = initialBank?.totalTransactionsCount ?: 0,
+                        lastTransactionTime = initialBank?.lastTransactionTime
+                    )
+                    onSave(initialBank?.senderId, updated)
+                },
                 enabled = senderId.isNotBlank(),
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald)
             ) {
-                Text("Add")
+                Text(if (isEditing) "Save Changes" else "Add Bank")
             }
         },
         dismissButton = {
@@ -555,6 +714,220 @@ private fun AddBankDialog(
             }
         }
     )
+}
+
+@Composable
+private fun DeleteBankConfirmDialog(
+    bank: BankSender,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = ExpenseCoral,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = { Text("Delete Bank?", fontWeight = FontWeight.Bold) },
+        text = {
+            Text(
+                "Are you sure you want to remove '${bank.displayName}' (${bank.senderId})? Messages from this bank will no longer be tracked and it will be deleted from monitored_banks.json.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ExpenseCoral)
+            ) {
+                Text("Delete Bank")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ClearFilesConfirmDialog(
+    storagePath: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.DeleteForever,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(30.dp)
+            )
+        },
+        title = { Text("Clear All Saved Files?", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "This will permanently delete all 4 persistence files in:\n$storagePath",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.5.sp
+                )
+                Text(
+                    text = "• manual_expenses.json\n• skipped_transactions.json\n• message_templates.json\n• monitored_banks.json",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "This action cannot be undone.",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Delete All Files")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun StoragePersistenceCard(
+    storagePath: String,
+    isPublicStorage: Boolean,
+    isAllFilesGranted: Boolean,
+    onRequestPermission: () -> Unit,
+    onClearFiles: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = CardDefaults.outlinedCardBorder(enabled = true),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        tint = MasariEmerald,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Data Files & Persistence",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isPublicStorage) MasariEmerald.copy(alpha = 0.14f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                ) {
+                    Text(
+                        text = if (isPublicStorage) "Public Storage (Persistent)" else "Internal Sandboxed",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.5.sp),
+                        color = if (isPublicStorage) MasariEmerald else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Directory: $storagePath",
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 10.5.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "Files saved here survive clearing application storage in Android Settings. You can also view or edit them via any file manager.",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (!isAllFilesGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    onClick = onRequestPermission,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Grant All Files Access for Public Storage",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                OutlinedButton(
+                    onClick = onClearFiles,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ExpenseCoral),
+                    border = BorderStroke(1.dp, ExpenseCoral.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteSweep,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Clear All Saved Files",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

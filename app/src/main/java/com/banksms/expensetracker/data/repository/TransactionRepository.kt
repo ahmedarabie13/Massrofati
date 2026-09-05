@@ -114,7 +114,10 @@ class TransactionRepository(
             // 3. Scan manual expenses from manual_expenses.json
             syncManualExpensesFromFile()
 
-            // 4. Scan SMS inbox
+            // 4. Synchronize monitored banks configuration with monitored_banks.json
+            syncMonitoredBanksWithFile()
+
+            // 5. Scan SMS inbox
             val monitored = bankSenderDao.getMonitoredSendersSync()
             if (monitored.isEmpty()) {
                 return@withContext SyncResult(0, 0, listOf("No monitored bank senders configured. Please enable banks in Settings."))
@@ -379,16 +382,61 @@ class TransactionRepository(
         }
     }
 
-    suspend fun setSenderMonitored(senderId: String, isMonitored: Boolean) {
+    suspend fun syncMonitoredBanksWithFile() = withContext(Dispatchers.IO) {
+        try {
+            val fileBanks = fileManager.getMonitoredBanks()
+            for (bank in fileBanks) {
+                val existing = bankSenderDao.getBySenderId(bank.senderId)
+                if (existing == null) {
+                    bankSenderDao.insert(BankSenderEntity.fromDomain(bank))
+                }
+            }
+        } catch (e: Exception) {
+            System.err.println("Error syncing monitored banks: ${e.message}")
+        }
+    }
+
+    suspend fun setSenderMonitored(senderId: String, isMonitored: Boolean) = withContext(Dispatchers.IO) {
         bankSenderDao.setMonitored(senderId, isMonitored)
+        fileManager.toggleMonitoredBank(senderId, isMonitored)
     }
 
-    suspend fun addCustomSender(sender: BankSender) {
+    suspend fun addCustomSender(sender: BankSender) = withContext(Dispatchers.IO) {
         bankSenderDao.insert(BankSenderEntity.fromDomain(sender))
+        fileManager.saveMonitoredBank(sender)
     }
 
-    suspend fun deleteSender(sender: BankSender) {
-        bankSenderDao.delete(BankSenderEntity.fromDomain(sender))
+    suspend fun updateSender(oldSenderId: String, updated: BankSender) = withContext(Dispatchers.IO) {
+        if (!oldSenderId.equals(updated.senderId, ignoreCase = true)) {
+            val oldEntity = bankSenderDao.getBySenderId(oldSenderId)
+            if (oldEntity != null) {
+                bankSenderDao.delete(oldEntity)
+            }
+            bankSenderDao.insert(BankSenderEntity.fromDomain(updated))
+        } else {
+            bankSenderDao.update(BankSenderEntity.fromDomain(updated))
+        }
+        fileManager.updateMonitoredBank(oldSenderId, updated)
+    }
+
+    suspend fun deleteSender(sender: BankSender) = withContext(Dispatchers.IO) {
+        val entity = bankSenderDao.getBySenderId(sender.senderId)
+        if (entity != null) {
+            bankSenderDao.delete(entity)
+        }
+        fileManager.deleteMonitoredBank(sender.senderId)
+    }
+
+    fun getStorageDirectoryPath(): String = fileManager.getStorageDirectoryPath()
+
+    fun isPublicStorageActive(): Boolean = fileManager.isPublicStorageActive()
+
+    suspend fun clearAllPersistenceFiles() = withContext(Dispatchers.IO) {
+        fileManager.clearAllFiles()
+        _skippedTransactions.value = emptyList()
+        _messageTemplates.value = fileManager.getMessageTemplates()
+        // Re-sync monitored banks to fresh defaults
+        syncMonitoredBanksWithFile()
     }
 
     suspend fun updateTransactionCategory(transactionId: Long, newCategory: String) {

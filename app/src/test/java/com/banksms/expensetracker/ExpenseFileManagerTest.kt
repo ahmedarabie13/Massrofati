@@ -165,4 +165,66 @@ class ExpenseFileManagerTest {
         val afterDelete = fileManager.getMessageTemplates()
         assertNull(afterDelete.find { it.id == "custom_test_1" })
     }
+
+    @Test
+    fun testMonitoredBanksPersistence() {
+        // Initial call seeds default banks
+        val initial = fileManager.getMonitoredBanks()
+        assertTrue(initial.size >= 3)
+        assertTrue(initial.any { it.senderId.equals("alinma", ignoreCase = true) })
+        assertTrue(initial.any { it.senderId.equals("alrajhibank", ignoreCase = true) })
+        assertTrue(initial.any { it.senderId.equals("alinmapay", ignoreCase = true) })
+
+        // Add custom bank
+        val customBank = com.banksms.expensetracker.data.model.BankSender(
+            senderId = "SNB",
+            displayName = "Saudi National Bank",
+            isMonitored = true
+        )
+        fileManager.saveMonitoredBank(customBank)
+
+        val afterAdd = fileManager.getMonitoredBanks()
+        val found = afterAdd.find { it.senderId == "SNB" }
+        assertNotNull(found)
+        assertEquals("Saudi National Bank", found!!.displayName)
+        assertTrue(found.isMonitored)
+
+        // Update custom bank
+        val updatedBank = found.copy(displayName = "SNB AlAhli")
+        fileManager.updateMonitoredBank("SNB", updatedBank)
+        val afterUpdate = fileManager.getMonitoredBanks()
+        assertEquals("SNB AlAhli", afterUpdate.find { it.senderId == "SNB" }?.displayName)
+
+        // Toggle monitored state
+        fileManager.toggleMonitoredBank("SNB", false)
+        assertFalse(fileManager.getMonitoredBanks().find { it.senderId == "SNB" }!!.isMonitored)
+
+        // Delete bank
+        val removed = fileManager.deleteMonitoredBank("SNB")
+        assertTrue(removed)
+        assertNull(fileManager.getMonitoredBanks().find { it.senderId == "SNB" })
+    }
+
+    @Test
+    fun testClearAllFiles() {
+        // Seed data in all 4 files
+        fileManager.saveManualExpense(ManualExpense(amount = 100.0))
+        fileManager.addSkippedTransaction(SkippedTransaction(originalMessageId = 123L, sender = "Test", amount = 50.0))
+        fileManager.saveMessageTemplate(com.banksms.expensetracker.data.model.MessageTemplate(name = "Test", pattern = "{amount}"))
+        fileManager.saveMonitoredBank(com.banksms.expensetracker.data.model.BankSender(senderId = "TestBank", displayName = "Test Bank"))
+
+        assertTrue(fileManager.manualExpensesFile.exists())
+        assertTrue(fileManager.skippedTransactionsFile.exists())
+        assertTrue(fileManager.messageTemplatesFile.exists())
+        assertTrue(fileManager.monitoredBanksFile.exists())
+
+        // Clear all files
+        val wiped = fileManager.clearAllFiles()
+        assertTrue(wiped)
+
+        assertFalse(fileManager.manualExpensesFile.exists())
+        assertFalse(fileManager.skippedTransactionsFile.exists())
+        assertFalse(fileManager.messageTemplatesFile.exists())
+        assertFalse(fileManager.monitoredBanksFile.exists())
+    }
 }

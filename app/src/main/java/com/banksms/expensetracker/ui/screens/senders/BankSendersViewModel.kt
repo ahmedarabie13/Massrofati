@@ -17,7 +17,9 @@ data class BankSendersUiState(
     val discoveredSenders: List<DiscoveredSender> = emptyList(),
     val isDiscovering: Boolean = false,
     val showDiscoveredDialog: Boolean = false,
-    val feedbackMessage: String? = null
+    val feedbackMessage: String? = null,
+    val storagePath: String = "",
+    val isPublicStorageActive: Boolean = false
 )
 
 class BankSendersViewModel(
@@ -58,7 +60,9 @@ class BankSendersViewModel(
             discoveredSenders = discovery.discoveredSenders,
             isDiscovering = discovery.isDiscovering,
             showDiscoveredDialog = discovery.showDiscoveredDialog,
-            feedbackMessage = msg
+            feedbackMessage = msg,
+            storagePath = repository.getStorageDirectoryPath(),
+            isPublicStorageActive = repository.isPublicStorageActive()
         )
     }.stateIn(
         scope = viewModelScope,
@@ -76,24 +80,40 @@ class BankSendersViewModel(
         }
     }
 
-    fun addSender(senderId: String, displayName: String) {
+    fun addSender(senderId: String, displayName: String, customRegex: String? = null) {
         if (senderId.isBlank()) return
         viewModelScope.launch {
             repository.addCustomSender(
                 BankSender(
                     senderId = senderId.trim(),
                     displayName = if (displayName.isNotBlank()) displayName.trim() else senderId.trim(),
-                    isMonitored = true
+                    isMonitored = true,
+                    customRegex = customRegex?.trim()?.takeIf { it.isNotBlank() }
                 )
             )
             _feedbackMessage.value = "Bank added successfully"
         }
     }
 
+    fun updateSender(oldSenderId: String, updated: BankSender) {
+        if (updated.senderId.isBlank()) return
+        viewModelScope.launch {
+            repository.updateSender(oldSenderId, updated)
+            _feedbackMessage.value = "Bank '${updated.displayName}' updated"
+        }
+    }
+
     fun deleteSender(sender: BankSender) {
         viewModelScope.launch {
             repository.deleteSender(sender)
-            _feedbackMessage.value = "Bank removed"
+            _feedbackMessage.value = "Bank '${sender.displayName}' removed"
+        }
+    }
+
+    fun clearAllPersistenceFiles() {
+        viewModelScope.launch {
+            repository.clearAllPersistenceFiles()
+            _feedbackMessage.value = "All saved persistence files cleared from the filesystem"
         }
     }
 
