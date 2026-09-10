@@ -247,4 +247,105 @@ class TemplateMatcherTest {
         val flexibleResult = TemplateMatcher.test(flexibleTemplate, sms)
         assertTrue("Flexible template should match: ${flexibleResult.errorMessage}", flexibleResult.isMatch)
     }
+
+    @Test
+    fun testAlinmaRefundTemplateMatching() {
+        val template = MessageTemplate(
+            id = "default_tpl_alinma_refund",
+            name = "Alinma Card Purchase Refund",
+            sender = "alinma",
+            pattern = "استرجاع عملية شراء\nلبطاقة ائتمانية: {card}\nمبلغ: {amount} {currency}\nرقم حساب: {account}\nفي: {merchant}\n*",
+            defaultType = TransactionType.INCOME,
+            defaultCurrency = "SAR",
+            defaultCategory = "Income / Deposits"
+        )
+
+        val sms = """
+            استرجاع عملية شراء
+            لبطاقة ائتمانية: *7639
+            مبلغ: 38.76 SAR
+            رقم حساب: **0000
+            في: TEMU.COM
+            في: أيرلندا
+            في: 2026-09-10 17:19:00
+        """.trimIndent()
+
+        val testResult = TemplateMatcher.test(template, sms)
+        assertTrue("Refund template should match: ${testResult.errorMessage}", testResult.isMatch)
+        val parsed = testResult.parsedTransaction
+        assertNotNull(parsed)
+        assertEquals(38.76, parsed!!.amount, 0.001)
+        assertEquals("SAR", parsed.currency)
+        assertEquals("TEMU.COM", parsed.merchant)
+        assertEquals("**7639", parsed.accountOrCard)
+        assertEquals(TransactionType.INCOME, parsed.type)
+        assertEquals("Income / Deposits", parsed.category)
+    }
+
+    @Test
+    fun testTemplateWithTypePlaceholderRecognizesRefundAsIncome() {
+        val template = MessageTemplate(
+            name = "Card Purchase / Refund",
+            sender = "alinma",
+            pattern = "{type} عملية شراء\nلبطاقة ائتمانية: {card}\nمبلغ: {amount} {currency}\nرقم حساب: {account}\nفي: {merchant}\n*",
+            defaultType = TransactionType.EXPENSE, // Default is EXPENSE!
+            defaultCurrency = "SAR"
+        )
+
+        val sms = """
+            استرجاع عملية شراء
+            لبطاقة ائتمانية: *7639
+            مبلغ: 38.76 SAR
+            رقم حساب: **0000
+            في: TEMU.COM
+            في: أيرلندا
+            في: 2026-09-10 17:19:00
+        """.trimIndent()
+
+        val parsed = TemplateMatcher.match(sms, "Alinma", template)
+        assertNotNull(parsed)
+        // Despite defaultType = EXPENSE, captured {type} is "استرجاع", so it MUST be INCOME!
+        assertEquals(TransactionType.INCOME, parsed!!.type)
+        assertEquals(38.76, parsed.amount, 0.001)
+        assertEquals("TEMU.COM", parsed.merchant)
+        assertEquals("**7639", parsed.accountOrCard)
+    }
+
+    @Test
+    fun testTemplateWithoutTypePlaceholderPrioritizesRefundKeywordsOverExpenseDefault() {
+        val template = MessageTemplate(
+            name = "Alinma Refund Without Type Group",
+            sender = "*",
+            pattern = "استرجاع عملية شراء\nلبطاقة ائتمانية: {card}\nمبلغ: {amount} {currency}\n*",
+            defaultType = TransactionType.EXPENSE // Default is EXPENSE!
+        )
+
+        val sms = """
+            استرجاع عملية شراء
+            لبطاقة ائتمانية: *7639
+            مبلغ: 38.76 SAR
+            في: TEMU.COM
+        """.trimIndent()
+
+        val parsed = TemplateMatcher.match(sms, "AnyBank", template)
+        assertNotNull(parsed)
+        assertEquals(TransactionType.INCOME, parsed!!.type)
+    }
+
+    @Test
+    fun testEnglishRefundKeywordsClassifiedAsIncome() {
+        val template = MessageTemplate(
+            name = "English Refund",
+            sender = "*",
+            pattern = "{type} for purchase of {amount} {currency} at {merchant}",
+            defaultType = TransactionType.EXPENSE
+        )
+
+        val sms = "Refund for purchase of 150.00 SAR at Amazon"
+        val parsed = TemplateMatcher.match(sms, "AnyBank", template)
+        assertNotNull(parsed)
+        assertEquals(TransactionType.INCOME, parsed!!.type)
+        assertEquals(150.00, parsed.amount, 0.001)
+        assertEquals("Amazon", parsed.merchant)
+    }
 }

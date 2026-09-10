@@ -447,4 +447,51 @@ class BankSmsParserTest {
         val parsed = BankSmsParser.parse(sms, "Alinma")
         assertNull("Credit card settlement (سداد) should be excluded", parsed)
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  REFUND / REVERSAL TRANSACTIONS
+    // ═══════════════════════════════════════════════════════════════
+
+    @Test
+    fun alinma_purchaseRefund_classifiedAsIncome() {
+        val sms = """
+            استرجاع عملية شراء
+            لبطاقة ائتمانية: *7639
+            مبلغ: 38.76 SAR
+            رقم حساب: **0000
+            في: TEMU.COM
+            في: أيرلندا
+            في: 2026-09-10 17:19:00
+        """.trimIndent()
+
+        val parsed = BankSmsParser.parse(sms, "Alinma")
+        assertNotNull("Alinma refund SMS should be parsed", parsed)
+        assertEquals(TransactionType.INCOME, parsed!!.type)
+        assertEquals(38.76, parsed.amount, 0.001)
+        assertEquals("SAR", parsed.currency)
+        assertEquals("**7639", parsed.accountOrCard)
+        assertEquals("TEMU.COM", parsed.merchant)
+        assertEquals("Income / Deposits", parsed.category)
+    }
+
+    @Test
+    fun alinma_purchaseRefund_autoDetectSenderWithoutSenderParam() {
+        val sms = """
+            استرجاع عملية شراء
+            لبطاقة ائتمانية: *7639
+            مبلغ: 38.76 SAR
+            رقم حساب: **0000
+            في: TEMU.COM
+            في: أيرلندا
+            في: 2026-09-10 17:19:00
+        """.trimIndent()
+
+        val parsed = BankSmsParser.parse(sms)
+        assertNotNull("Alinma refund SMS should be auto-detected", parsed)
+        assertEquals(TransactionType.INCOME, parsed!!.type)
+        assertEquals(38.76, parsed.amount, 0.001)
+        assertEquals("SAR", parsed.currency)
+        assertEquals("**7639", parsed.accountOrCard)
+        assertEquals("TEMU.COM", parsed.merchant)
+    }
 }

@@ -73,9 +73,20 @@ object BankSmsParser {
                 lower.contains("alinmapay") || lower.contains("remaining balance"))
     }
 
+    private fun isRefundText(text: String): Boolean {
+        val lower = text.lowercase()
+        return lower.contains("استرجاع") || lower.contains("استرداد") ||
+                lower.contains("عكس") || lower.contains("مرتجع") ||
+                lower.contains("مسترجع") || lower.contains("إرجاع") ||
+                lower.contains("رد مبلغ") || lower.contains("رد عملية") ||
+                lower.contains("refund") || lower.contains("reversal") ||
+                lower.contains("reversed") || lower.contains("returned")
+    }
+
     private fun isAlinmaMessage(body: String): Boolean {
         return (body.contains("بطاقة ائتمانية") || body.contains("البطاقة الائتمانية")) &&
-                (body.contains("رصيد") || body.contains("الرصيد"))
+                (body.contains("رصيد") || body.contains("الرصيد") ||
+                 body.contains("رقم حساب") || body.contains("شراء") || isRefundText(body))
     }
 
     private fun isAlRajhiMessage(body: String): Boolean {
@@ -111,6 +122,7 @@ object BankSmsParser {
      *   b) شراء نقاط بيع 26.05 SAR - Samsung PAY / بطاقة ائتمانية **7639 / من merchant / رصيد X SAR
      *   c) شراء عبر الإنترنت / بطاقة ائتمانية **7639 / مبلغ SAR 1,064 / من merchant / رصيد X SAR
      *   d) شراء دولي إنترنت SAR 156 / بطاقة ائتمانية **7639 / من merchant / المبلغ المستحق SAR 159.59 / رصيد SAR X
+     *   e) استرجاع عملية شراء / لبطاقة ائتمانية: *7639 / مبلغ: 38.76 SAR / رقم حساب: **0000 / في: merchant / في: country / في: timestamp
      */
     private fun parseAlinma(body: String): ParsedTransaction? {
         val lines = body.lines().map { it.trim() }.filter { it.isNotBlank() }
@@ -118,10 +130,13 @@ object BankSmsParser {
 
         val firstLine = lines[0]
 
-        // Must be a purchase (شراء)
-        if (!firstLine.contains("شراء")) return null
+        // Check if message is a refund or purchase
+        val isRefund = isRefundText(firstLine) || isRefundText(body)
 
-        val type = TransactionType.EXPENSE
+        // Must be a purchase (شراء) or a refund (استرجاع / استرداد / عكس / مرتجع)
+        if (!firstLine.contains("شراء") && !isRefund) return null
+
+        val type = if (isRefund) TransactionType.INCOME else TransactionType.EXPENSE
         var amount: Double? = null
         var card: String? = null
         var merchant: String? = null
@@ -132,12 +147,17 @@ object BankSmsParser {
         amount = extractSarAmount(firstLine)
 
         for (line in lines) {
-            // Card: "البطاقة الائتمانية: **7639" or "بطاقة ائتمانية **7639"
+            // Card: "البطاقة الائتمانية: **7639" or "بطاقة ائتمانية **7639" or "لبطاقة ائتمانية: *7639"
             if (card == null && (line.contains("بطاقة") || line.contains("البطاقة"))) {
                 card = extractStarredId(line)
             }
 
-            // Amount: "مبلغ: SAR 4" or "مبلغ SAR 1,064" (only if not already found)
+            // Fallback account: "رقم حساب: **0000" or "حساب **0000"
+            if (card == null && (line.contains("حساب") || line.contains("الحساب"))) {
+                card = extractStarredId(line)
+            }
+
+            // Amount: "مبلغ: SAR 4" or "مبلغ SAR 1,064" or "مبلغ: 38.76 SAR" (only if not already found)
             if (amount == null && line.contains("مبلغ")) {
                 amount = extractSarAmount(line)
             }
@@ -148,12 +168,18 @@ object BankSmsParser {
                 if (totalDue != null) amount = totalDue
             }
 
-            // Merchant: "لدى: 170672 riyadh metro" or "من Riyadh Air"
+            // Merchant: "لدى: 170672 riyadh metro" or "من Riyadh Air" or "في: TEMU.COM"
             if (merchant == null) {
                 if (line.startsWith("لدى")) {
                     merchant = line.removePrefix("لدى").removePrefix(":").trim()
                 } else if (line.startsWith("من ") || line.startsWith("من\t")) {
                     merchant = line.removePrefix("من").trim()
+                } else if (line.startsWith("في:") || line.startsWith("في ")) {
+                    val candidate = line.removePrefix("في:").removePrefix("في").trim()
+                    val isDateTime = Regex("""\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}:\d{2}""").containsMatchIn(candidate)
+                    if (!isDateTime && candidate.isNotBlank()) {
+                        merchant = candidate
+                    }
                 }
             }
 
@@ -205,6 +231,7 @@ object BankSmsParser {
 
         // ── Determine transaction type from first line ──
         when {
+            isRefundText(firstLine) || isRefundText(body) -> type = TransactionType.INCOME
             firstLine.contains("واردة") -> type = TransactionType.INCOME     // حوالة واردة = incoming
             firstLine.contains("صادرة") -> type = TransactionType.EXPENSE    // حوالة صادرة = outgoing
             firstLine.contains("شراء") -> type = TransactionType.EXPENSE     // purchase
@@ -423,10 +450,13 @@ object BankSmsParser {
         return m?.let { parseAmountStr(it.groupValues[1]) }
     }
 
-    /** Extract a **XXXX pattern from text */
+    /** Extract a *XXXX or **XXXX pattern from text and format as **XXXX */
     private fun extractStarredId(text: String): String? {
-        val m = Regex("""\*\*\s*(\d+)""").find(text)
-        return m?.let { "**${it.groupValues[1]}" }
+        val m = Regex("""\*+\s*(\d+)""").find(text)
+        return m?.let {
+            val digits = it.groupValues[1]
+            if (digits.length >= 4) "**${digits.takeLast(4)}" else "**$digits"
+        }
     }
 
     /** Parse a numeric string like "1,250.00" or "412.1" into a Double */

@@ -61,7 +61,12 @@ object TemplateMatcher {
         val balanceStr = captured["balance"]
         val balance = balanceStr?.let { parseAmountStr(it) }
 
-        val type = determineTransactionType(captured["type"], template.defaultType)
+        val type = determineTransactionType(
+            typeText = captured["type"],
+            smsBody = normalizedBody,
+            pattern = template.pattern,
+            defaultType = template.defaultType
+        )
         val category = captured["category"]?.trim()
             ?: inferCategory(merchant, smsBody, type, template.defaultCategory)
 
@@ -125,7 +130,12 @@ object TemplateMatcher {
         val card = rawCard?.let { formatCardNumber(it) }
         val balanceStr = captured["balance"]
         val balance = balanceStr?.let { parseAmountStr(it) }
-        val type = determineTransactionType(captured["type"], template.defaultType)
+        val type = determineTransactionType(
+            typeText = captured["type"],
+            smsBody = normalizedBody,
+            pattern = template.pattern,
+            defaultType = template.defaultType
+        )
         val category = captured["category"]?.trim()
             ?: inferCategory(merchant, sampleSms, type, template.defaultCategory)
 
@@ -245,7 +255,7 @@ object TemplateMatcher {
             "card" -> if (isFirst) builder.append("""(?<card>(?:\*+\s*\d+|\d{4,}))""") else builder.append("""(?:\*+\s*\d+|\d{4,})""")
             "account" -> if (isFirst) builder.append("""(?<account>(?:\*+\s*\d+|\d{4,}))""") else builder.append("""(?:\*+\s*\d+|\d{4,})""")
             "balance" -> if (isFirst) builder.append("""(?<balance>[0-9,]+(?:\.[0-9]+)?)""") else builder.append("""(?:[0-9,]+(?:\.[0-9]+)?)""")
-            "type" -> if (isFirst) builder.append("""(?<type>[^\s\r\n]+)""") else builder.append("""(?:[^\s\r\n]+)""")
+            "type" -> if (isFirst) builder.append("""(?<type>[^\r\n;:]+)""") else builder.append("""(?:[^\r\n;:]+)""")
             "category" -> if (isFirst) builder.append("""(?<category>[^\r\n;]+)""") else builder.append("""(?:[^\r\n;]+)""")
             "date" -> if (isFirst) builder.append("""(?<date>\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})""") else builder.append("""(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})""")
             "time" -> if (isFirst) builder.append("""(?<time>\d{1,2}:\d{2}(?::\d{2})?)""") else builder.append("""(?:\d{1,2}:\d{2}(?::\d{2})?)""")
@@ -307,16 +317,59 @@ object TemplateMatcher {
         }
     }
 
-    private fun determineTransactionType(typeText: String?, defaultType: TransactionType): TransactionType {
-        if (typeText.isNullOrBlank()) return defaultType
-        val lower = typeText.lowercase()
-        return when {
-            lower.contains("وارد") || lower.contains("credit") || lower.contains("deposit") || lower.contains("إيداع") ->
-                TransactionType.INCOME
-            lower.contains("صادر") || lower.contains("debit") || lower.contains("شراء") || lower.contains("خصم") ->
-                TransactionType.EXPENSE
-            else -> defaultType
+    fun isRefundKeyword(text: String): Boolean {
+        val lower = text.lowercase()
+        return lower.contains("استرجاع") || lower.contains("استرداد") ||
+                lower.contains("عكس") || lower.contains("مرتجع") ||
+                lower.contains("مسترجع") || lower.contains("إرجاع") ||
+                lower.contains("رد مبلغ") || lower.contains("رد عملية") ||
+                lower.contains("refund") || lower.contains("reversal") ||
+                lower.contains("reversed") || lower.contains("returned")
+    }
+
+    private fun isIncomeKeyword(text: String): Boolean {
+        val lower = text.lowercase()
+        return lower.contains("وارد") || lower.contains("credit") ||
+                lower.contains("deposit") || lower.contains("إيداع") ||
+                lower.contains("اضافة") || lower.contains("إضافة") ||
+                lower.contains("salary") || lower.contains("راتب")
+    }
+
+    private fun isExpenseKeyword(text: String): Boolean {
+        val lower = text.lowercase()
+        return lower.contains("صادر") || lower.contains("debit") ||
+                lower.contains("شراء") || lower.contains("خصم") ||
+                lower.contains("سحب") || lower.contains("purchase") ||
+                lower.contains("payment") || lower.contains("مدفوع")
+    }
+
+    fun determineTransactionType(
+        typeText: String?,
+        smsBody: String = "",
+        pattern: String = "",
+        defaultType: TransactionType = TransactionType.EXPENSE
+    ): TransactionType {
+        // 1. If explicit typeText was captured, examine it first.
+        // Refund/reversal keywords take strict precedence over expense keywords (e.g. "استرجاع عملية شراء")
+        if (!typeText.isNullOrBlank()) {
+            val lower = typeText.lowercase()
+            if (isRefundKeyword(lower)) return TransactionType.INCOME
+            if (isIncomeKeyword(lower)) return TransactionType.INCOME
+            if (isExpenseKeyword(lower)) return TransactionType.EXPENSE
         }
+
+        // 2. Check if the SMS body or template pattern itself explicitly signifies a refund/reversal
+        if (isRefundKeyword(smsBody) || isRefundKeyword(pattern)) {
+            return TransactionType.INCOME
+        }
+
+        // 3. Check if template pattern explicitly signifies income (e.g. "حوالة واردة")
+        if (isIncomeKeyword(pattern)) {
+            return TransactionType.INCOME
+        }
+
+        // 4. Fallback to defaultType
+        return defaultType
     }
 
     private fun inferCategory(

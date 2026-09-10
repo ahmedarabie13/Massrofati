@@ -109,6 +109,16 @@ data class MessageTemplate(
                 defaultCurrency = "SAR",
                 defaultCategory = "Income / Deposits",
                 isEnabled = true
+            ),
+            MessageTemplate(
+                id = "default_tpl_alinma_refund",
+                name = "Alinma Card Purchase Refund",
+                sender = "alinma",
+                pattern = "استرجاع عملية شراء\nلبطاقة ائتمانية: {card}\nمبلغ: {amount} {currency}\nرقم حساب: {account}\nفي: {merchant}\n*",
+                defaultType = TransactionType.INCOME,
+                defaultCurrency = "SAR",
+                defaultCategory = "Income / Deposits",
+                isEnabled = true
             )
         )
     }
