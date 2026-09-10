@@ -37,6 +37,9 @@ interface BankSenderDao {
     @Query("SELECT * FROM bank_senders WHERE isMonitored = 1")
     suspend fun getMonitoredSendersSync(): List<BankSenderEntity>
 
+    @Query("SELECT * FROM bank_senders")
+    suspend fun getAllSendersSync(): List<BankSenderEntity>
+
     @Query("""
         SELECT 
             b.senderId,

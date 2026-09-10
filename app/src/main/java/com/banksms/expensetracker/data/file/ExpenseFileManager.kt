@@ -164,6 +164,67 @@ class ExpenseFileManager(
     private val baseDirectory: File? = null
 ) {
 
+    private fun isDirectoryUsable(dir: File): Boolean {
+        return try {
+            if (!dir.exists()) {
+                val created = dir.mkdirs()
+                if (!created && !dir.exists()) return false
+            }
+            val testFile = File(dir, ".perm_test_${System.currentTimeMillis()}.tmp")
+            testFile.writeText("ok")
+            val readable = testFile.readText() == "ok"
+            testFile.delete()
+            readable
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun getCandidateDirectories(): List<File> {
+        val candidates = mutableListOf<File>()
+        if (baseDirectory != null) {
+            candidates.add(baseDirectory)
+        }
+        // 1. External Public Documents
+        try {
+            val publicDocs = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+            candidates.add(File(publicDocs, "Masari"))
+        } catch (_: Throwable) {}
+
+        // 2. Root Documents
+        try {
+            candidates.add(File(Environment.getExternalStorageDirectory(), "Documents/Masari"))
+        } catch (_: Throwable) {}
+
+        // 3. External Public Downloads
+        try {
+            val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            candidates.add(File(publicDownloads, "Masari"))
+        } catch (_: Throwable) {}
+
+        // 4. Root Downloads
+        try {
+            candidates.add(File(Environment.getExternalStorageDirectory(), "Download/Masari"))
+        } catch (_: Throwable) {}
+
+        // 5. App External Files Dir
+        try {
+            context?.getExternalFilesDir(null)?.let {
+                candidates.add(File(it, "Masari"))
+            }
+        } catch (_: Throwable) {}
+
+        // 6. App Internal Files Dir
+        try {
+            context?.filesDir?.let {
+                candidates.add(File(it, "Masari"))
+                candidates.add(File(it, "data")) // Legacy
+            }
+        } catch (_: Throwable) {}
+
+        return candidates.distinctBy { it.absolutePath }
+    }
+
     val dataDir: File
         get() {
             if (baseDirectory != null) {
@@ -175,9 +236,8 @@ class ExpenseFileManager(
             try {
                 val publicDocs = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
                 val masariDir = File(publicDocs, "Masari")
-                if (!masariDir.exists()) masariDir.mkdirs()
-                if (masariDir.exists() && masariDir.canWrite()) {
-                    migrateInternalToExternalIfNeeded(masariDir)
+                if (isDirectoryUsable(masariDir)) {
+                    recoverAndMigrateFiles(masariDir)
                     return masariDir
                 }
             } catch (_: Throwable) {}
@@ -185,16 +245,35 @@ class ExpenseFileManager(
             // 2. Try root ExternalStorage/Documents/Masari
             try {
                 val extDocs = File(Environment.getExternalStorageDirectory(), "Documents/Masari")
-                if (!extDocs.exists()) extDocs.mkdirs()
-                if (extDocs.exists() && extDocs.canWrite()) {
-                    migrateInternalToExternalIfNeeded(extDocs)
+                if (isDirectoryUsable(extDocs)) {
+                    recoverAndMigrateFiles(extDocs)
                     return extDocs
                 }
             } catch (_: Throwable) {}
 
-            // 3. Fallback to app private directory if external is not yet permitted
+            // 3. Try public Downloads/Masari
+            try {
+                val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val masariDir = File(publicDownloads, "Masari")
+                if (isDirectoryUsable(masariDir)) {
+                    recoverAndMigrateFiles(masariDir)
+                    return masariDir
+                }
+            } catch (_: Throwable) {}
+
+            // 4. Try external app storage (survives when internal is cleared, if permission allows)
+            try {
+                val extAppDir = context?.getExternalFilesDir(null)?.let { File(it, "Masari") }
+                if (extAppDir != null && isDirectoryUsable(extAppDir)) {
+                    recoverAndMigrateFiles(extAppDir)
+                    return extAppDir
+                }
+            } catch (_: Throwable) {}
+
+            // 5. Fallback to app private directory if external is not yet permitted
             val fallbackDir = File(context?.filesDir ?: File("."), "Masari")
             if (!fallbackDir.exists()) fallbackDir.mkdirs()
+            recoverAndMigrateFiles(fallbackDir)
             return fallbackDir
         }
 
@@ -203,25 +282,88 @@ class ExpenseFileManager(
     fun isPublicStorageActive(): Boolean {
         val path = dataDir.absolutePath
         return !path.contains("/data/user/") && !path.contains("/data/data/") &&
-                (path.contains("Documents/Masari") || path.contains("Masari"))
+                (path.contains("Documents/Masari") || path.contains("Masari") || path.contains("Download"))
     }
 
-    private fun migrateInternalToExternalIfNeeded(targetDir: File) {
-        try {
-            val legacyDir = File(context?.filesDir ?: return, "data")
-            if (!legacyDir.exists() || !legacyDir.isDirectory) return
-            val filesToMigrate = listOf(
-                "manual_expenses.json",
-                "skipped_transactions.json",
-                "message_templates.json",
-                "monitored_banks.json"
-            )
-            for (filename in filesToMigrate) {
-                val oldFile = File(legacyDir, filename)
-                val newFile = File(targetDir, filename)
-                if (oldFile.exists() && !newFile.exists()) {
-                    oldFile.copyTo(newFile, overwrite = true)
+    private fun recoverAndMigrateFiles(targetDir: File) {
+        val filesToMigrate = listOf(
+            "manual_expenses.json",
+            "skipped_transactions.json",
+            "message_templates.json",
+            "monitored_banks.json"
+        )
+        for (filename in filesToMigrate) {
+            val targetFile = File(targetDir, filename)
+            if (!targetFile.exists() || targetFile.length() == 0L) {
+                // Search across all candidate directories for existing data
+                for (candDir in getCandidateDirectories()) {
+                    if (candDir.absolutePath == targetDir.absolutePath) continue
+                    val candFile = File(candDir, filename)
+                    if (candFile.exists() && candFile.length() > 0L) {
+                        try {
+                            candFile.copyTo(targetFile, overwrite = true)
+                            break
+                        } catch (_: Throwable) {}
+                    }
                 }
+            }
+        }
+    }
+
+    private fun readFileContent(file: File): String? {
+        if (file.exists() && file.length() > 0L) {
+            try {
+                val text = file.readText()
+                if (text.isNotBlank()) return text
+            } catch (_: Exception) {}
+        }
+        // Check for temp file fallback if a previous rename failed
+        val parent = file.parentFile
+        if (parent != null) {
+            val tmp = File(parent, "${file.name}.tmp")
+            if (tmp.exists() && tmp.length() > 0L) {
+                try {
+                    val content = tmp.readText()
+                    if (content.isNotBlank()) {
+                        tmp.copyTo(file, overwrite = true)
+                        return content
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+        // Check across other candidate directories for recovery
+        for (candDir in getCandidateDirectories()) {
+            if (candDir.absolutePath == file.parentFile?.absolutePath) continue
+            val candFile = File(candDir, file.name)
+            if (candFile.exists() && candFile.length() > 0L) {
+                try {
+                    val content = candFile.readText()
+                    if (content.isNotBlank()) {
+                        candFile.copyTo(file, overwrite = true)
+                        return content
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+        return null
+    }
+
+    private fun mirrorWrite(filename: String, content: String) {
+        // If dataDir is outside app internal storage, also mirror to context.filesDir as local cache
+        try {
+            val internalBackupDir = File(context?.filesDir ?: return, "Masari")
+            if (internalBackupDir.absolutePath != dataDir.absolutePath) {
+                val backupFile = File(internalBackupDir, filename)
+                writeAtomically(backupFile, content)
+            }
+        } catch (_: Throwable) {}
+
+        // If dataDir is inside app internal storage, also attempt to mirror to external Documents/Masari
+        try {
+            val publicDocs = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Masari")
+            if (publicDocs.absolutePath != dataDir.absolutePath && isDirectoryUsable(publicDocs)) {
+                val extFile = File(publicDocs, filename)
+                writeAtomically(extFile, content)
             }
         } catch (_: Throwable) {}
     }
@@ -236,10 +378,9 @@ class ExpenseFileManager(
     // ── Manual Expenses Operations ────────────────────────────────────────
 
     fun getManualExpenses(): List<ManualExpense> = synchronized(lock) {
-        if (!manualExpensesFile.exists()) return emptyList()
+        val content = readFileContent(manualExpensesFile) ?: return emptyList()
+        if (content.isBlank()) return emptyList()
         try {
-            val content = manualExpensesFile.readText()
-            if (content.isBlank()) return emptyList()
             val jsonArray = JSONArray(content)
             val result = mutableListOf<ManualExpense>()
             for (i in 0 until jsonArray.length()) {
@@ -276,7 +417,9 @@ class ExpenseFileManager(
         try {
             val jsonArray = JSONArray()
             expenses.forEach { jsonArray.put(it.toJsonObject()) }
-            writeAtomically(manualExpensesFile, jsonArray.toString(2))
+            val content = jsonArray.toString(2)
+            writeAtomically(manualExpensesFile, content)
+            mirrorWrite("manual_expenses.json", content)
         } catch (e: Exception) {
             System.err.println("ExpenseFileManager error: ${e.message}")
         }
@@ -285,10 +428,9 @@ class ExpenseFileManager(
     // ── Skipped Transactions Operations ──────────────────────────────────
 
     fun getSkippedTransactions(): List<SkippedTransaction> = synchronized(lock) {
-        if (!skippedTransactionsFile.exists()) return emptyList()
+        val content = readFileContent(skippedTransactionsFile) ?: return emptyList()
+        if (content.isBlank()) return emptyList()
         try {
-            val content = skippedTransactionsFile.readText()
-            if (content.isBlank()) return emptyList()
             val jsonArray = JSONArray(content)
             val result = mutableListOf<SkippedTransaction>()
             for (i in 0 until jsonArray.length()) {
@@ -349,7 +491,9 @@ class ExpenseFileManager(
         try {
             val jsonArray = JSONArray()
             skipped.forEach { jsonArray.put(it.toJsonObject()) }
-            writeAtomically(skippedTransactionsFile, jsonArray.toString(2))
+            val content = jsonArray.toString(2)
+            writeAtomically(skippedTransactionsFile, content)
+            mirrorWrite("skipped_transactions.json", content)
         } catch (e: Exception) {
             System.err.println("ExpenseFileManager error: ${e.message}")
         }
@@ -358,24 +502,29 @@ class ExpenseFileManager(
     // ── Message Templates Operations ─────────────────────────────────────
 
     fun getMessageTemplates(): List<MessageTemplate> = synchronized(lock) {
-        if (!messageTemplatesFile.exists()) {
+        val content = readFileContent(messageTemplatesFile)
+        if (content.isNullOrBlank()) {
             // Seed with default templates and save to file system
             val initial = MessageTemplate.defaultTemplates
             writeMessageTemplates(initial)
             return initial
         }
         try {
-            val content = messageTemplatesFile.readText()
-            if (content.isBlank()) return emptyList()
             val jsonArray = JSONArray(content)
             val result = mutableListOf<MessageTemplate>()
             for (i in 0 until jsonArray.length()) {
                 result.add(MessageTemplate.fromJsonObject(jsonArray.getJSONObject(i)))
             }
-            result.sortedByDescending { it.updatedAt }
+            if (result.isEmpty()) {
+                val initial = MessageTemplate.defaultTemplates
+                writeMessageTemplates(initial)
+                initial
+            } else {
+                result.sortedByDescending { it.updatedAt }
+            }
         } catch (e: Exception) {
             System.err.println("ExpenseFileManager error: ${e.message}")
-            emptyList()
+            MessageTemplate.defaultTemplates
         }
     }
 
@@ -418,7 +567,9 @@ class ExpenseFileManager(
         try {
             val jsonArray = JSONArray()
             templates.forEach { jsonArray.put(it.toJsonObject()) }
-            writeAtomically(messageTemplatesFile, jsonArray.toString(2))
+            val content = jsonArray.toString(2)
+            writeAtomically(messageTemplatesFile, content)
+            mirrorWrite("message_templates.json", content)
         } catch (e: Exception) {
             System.err.println("ExpenseFileManager error: ${e.message}")
         }
@@ -427,14 +578,13 @@ class ExpenseFileManager(
     // ── Monitored Banks Operations ────────────────────────────────────────
 
     fun getMonitoredBanks(): List<BankSender> = synchronized(lock) {
-        if (!monitoredBanksFile.exists()) {
+        val content = readFileContent(monitoredBanksFile)
+        if (content.isNullOrBlank()) {
             val initial = BankSender.defaultSenders
             writeMonitoredBanks(initial)
             return initial
         }
         try {
-            val content = monitoredBanksFile.readText()
-            if (content.isBlank()) return BankSender.defaultSenders
             val jsonArray = JSONArray(content)
             val result = mutableListOf<BankSender>()
             for (i in 0 until jsonArray.length()) {
@@ -494,7 +644,9 @@ class ExpenseFileManager(
         try {
             val jsonArray = JSONArray()
             banks.forEach { jsonArray.put(it.toJsonObject()) }
-            writeAtomically(monitoredBanksFile, jsonArray.toString(2))
+            val content = jsonArray.toString(2)
+            writeAtomically(monitoredBanksFile, content)
+            mirrorWrite("monitored_banks.json", content)
         } catch (e: Exception) {
             System.err.println("ExpenseFileManager error: ${e.message}")
         }
@@ -504,30 +656,63 @@ class ExpenseFileManager(
 
     fun clearAllFiles(): Boolean = synchronized(lock) {
         var allSuccess = true
-        val files = listOf(
-            manualExpensesFile,
-            skippedTransactionsFile,
-            messageTemplatesFile,
-            monitoredBanksFile
+        val filenames = listOf(
+            "manual_expenses.json",
+            "skipped_transactions.json",
+            "message_templates.json",
+            "monitored_banks.json"
         )
-        for (f in files) {
+        // Clear from active dataDir
+        for (name in filenames) {
+            val f = File(dataDir, name)
             if (f.exists()) {
                 val deleted = f.delete()
                 if (!deleted) allSuccess = false
+            }
+            val tmp = File(dataDir, "$name.tmp")
+            if (tmp.exists()) tmp.delete()
+        }
+        // Also clear from candidate backup directories
+        for (dir in getCandidateDirectories()) {
+            for (name in filenames) {
+                val f = File(dir, name)
+                if (f.exists()) f.delete()
+                val tmp = File(dir, "$name.tmp")
+                if (tmp.exists()) tmp.delete()
             }
         }
         allSuccess
     }
 
     private fun writeAtomically(targetFile: File, content: String) {
-        val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
-        FileOutputStream(tempFile).use { fos ->
-            fos.write(content.toByteArray(Charsets.UTF_8))
-            fos.flush()
-        }
-        if (tempFile.exists()) {
-            if (targetFile.exists()) targetFile.delete()
-            tempFile.renameTo(targetFile)
+        try {
+            val parent = targetFile.parentFile ?: return
+            if (!parent.exists()) parent.mkdirs()
+            val tempFile = File(parent, "${targetFile.name}.tmp")
+            FileOutputStream(tempFile).use { fos ->
+                fos.write(content.toByteArray(Charsets.UTF_8))
+                fos.flush()
+                try {
+                    fos.fd.sync()
+                } catch (_: Throwable) {}
+            }
+            if (tempFile.exists()) {
+                val renamed = tempFile.renameTo(targetFile)
+                if (!renamed) {
+                    tempFile.copyTo(targetFile, overwrite = true)
+                    tempFile.delete()
+                }
+            }
+        } catch (e: Exception) {
+            // Direct write fallback
+            try {
+                FileOutputStream(targetFile).use { fos ->
+                    fos.write(content.toByteArray(Charsets.UTF_8))
+                    fos.flush()
+                }
+            } catch (ex: Exception) {
+                System.err.println("ExpenseFileManager writeAtomically error: ${ex.message}")
+            }
         }
     }
 }

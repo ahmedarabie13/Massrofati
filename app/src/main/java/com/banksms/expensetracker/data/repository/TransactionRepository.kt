@@ -92,7 +92,11 @@ class TransactionRepository(
             // 1. Clean up any historical duplicate transactions
             transactionDao.deleteDuplicates()
 
-            // 2. Refresh and enforce skipped transactions from the file
+            // 2. Reload message templates from file system
+            val templates = fileManager.getMessageTemplates()
+            _messageTemplates.value = templates
+
+            // 3. Refresh and enforce skipped transactions from the file
             val skippedList = fileManager.getSkippedTransactions()
             _skippedTransactions.value = skippedList
             for (skipped in skippedList) {
@@ -111,20 +115,20 @@ class TransactionRepository(
                 }
             }
 
-            // 3. Scan manual expenses from manual_expenses.json
+            // 4. Scan manual expenses from manual_expenses.json
             syncManualExpensesFromFile()
 
-            // 4. Synchronize monitored banks configuration with monitored_banks.json
+            // 5. Synchronize monitored banks configuration with monitored_banks.json
             syncMonitoredBanksWithFile()
 
-            // 5. Scan SMS inbox
+            // 6. Scan SMS inbox with freshly reloaded templates
             val monitored = bankSenderDao.getMonitoredSendersSync()
             if (monitored.isEmpty()) {
                 return@withContext SyncResult(0, 0, listOf("No monitored bank senders configured. Please enable banks in Settings."))
             }
 
             val monitoredSenderIds = monitored.map { it.senderId }.toSet()
-            val enabledTemplates = fileManager.getMessageTemplates().filter { it.isEnabled }
+            val enabledTemplates = templates.filter { it.isEnabled }
             val parsedTransactions = smsReader.readBankMessages(monitoredSenderIds, customTemplates = enabledTemplates)
 
             if (parsedTransactions.isEmpty()) {
@@ -385,15 +389,43 @@ class TransactionRepository(
     suspend fun syncMonitoredBanksWithFile() = withContext(Dispatchers.IO) {
         try {
             val fileBanks = fileManager.getMonitoredBanks()
+            val fileSenderIds = fileBanks.map { it.senderId.lowercase() }.toSet()
+
+            // Remove senders from Room that are no longer in monitored_banks.json
+            val allDbSenders = bankSenderDao.getAllSendersSync()
+            for (dbSender in allDbSenders) {
+                if (!fileSenderIds.contains(dbSender.senderId.lowercase())) {
+                    bankSenderDao.delete(dbSender)
+                }
+            }
+
+            // Upsert all senders from monitored_banks.json
             for (bank in fileBanks) {
                 val existing = bankSenderDao.getBySenderId(bank.senderId)
                 if (existing == null) {
                     bankSenderDao.insert(BankSenderEntity.fromDomain(bank))
+                } else {
+                    bankSenderDao.update(
+                        existing.copy(
+                            displayName = bank.displayName,
+                            isMonitored = bank.isMonitored,
+                            customRegex = bank.customRegex
+                        )
+                    )
                 }
             }
         } catch (e: Exception) {
             System.err.println("Error syncing monitored banks: ${e.message}")
         }
+    }
+
+    suspend fun refreshFromFiles() = withContext(Dispatchers.IO) {
+        val templates = fileManager.getMessageTemplates()
+        _messageTemplates.value = templates
+        val skipped = fileManager.getSkippedTransactions()
+        _skippedTransactions.value = skipped
+        syncManualExpensesFromFile()
+        syncMonitoredBanksWithFile()
     }
 
     suspend fun setSenderMonitored(senderId: String, isMonitored: Boolean) = withContext(Dispatchers.IO) {

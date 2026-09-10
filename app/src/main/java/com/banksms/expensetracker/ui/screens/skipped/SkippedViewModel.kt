@@ -61,6 +61,12 @@ class SkippedViewModel(
         _searchQuery.value = query
     }
 
+    fun refresh() {
+        viewModelScope.launch {
+            repository.refreshFromFiles()
+        }
+    }
+
     fun unskipTransaction(skipped: SkippedTransaction) {
         viewModelScope.launch {
             _isRestoring.value = true

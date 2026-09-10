@@ -227,4 +227,28 @@ class ExpenseFileManagerTest {
         assertFalse(fileManager.messageTemplatesFile.exists())
         assertFalse(fileManager.monitoredBanksFile.exists())
     }
+
+    @Test
+    fun testTemplatesReloadWhenFileModifiedOnDisk() {
+        // Initial call seeds templates
+        val initial = fileManager.getMessageTemplates()
+        assertTrue(initial.isNotEmpty())
+
+        // Simulate external edit to message_templates.json on disk
+        val customTemplate = com.banksms.expensetracker.data.model.MessageTemplate(
+            id = "disk_edit_tpl",
+            name = "Direct Disk Edit Template",
+            pattern = "Transfer {amount} {currency}"
+        )
+        val list = listOf(customTemplate)
+        val jsonArray = org.json.JSONArray()
+        list.forEach { jsonArray.put(it.toJsonObject()) }
+        fileManager.messageTemplatesFile.writeText(jsonArray.toString(2))
+
+        // Re-read via getMessageTemplates()
+        val reloaded = fileManager.getMessageTemplates()
+        assertEquals(1, reloaded.size)
+        assertEquals("disk_edit_tpl", reloaded[0].id)
+        assertEquals("Direct Disk Edit Template", reloaded[0].name)
+    }
 }

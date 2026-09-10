@@ -72,6 +72,10 @@ fun BankSendersScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        viewModel.refreshFromFiles()
+    }
+
     LaunchedEffect(state.feedbackMessage) {
         state.feedbackMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg)
@@ -87,6 +91,13 @@ fun BankSendersScreen(
                 subtitle = if (state.selectedTab == 0) "Monitored Bank Senders" else "Custom SMS Templates",
                 showBrandEmblem = false,
                 actions = {
+                    IconButton(onClick = { viewModel.refreshFromFiles() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reload from File System",
+                            tint = MasariEmerald
+                        )
+                    }
                     IconButton(onClick = { showSandboxDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,

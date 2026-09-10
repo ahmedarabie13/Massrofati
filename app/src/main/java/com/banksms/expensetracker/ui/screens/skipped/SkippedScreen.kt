@@ -35,6 +35,10 @@ fun SkippedScreen(
     var transactionToRestore by remember { mutableStateOf<SkippedTransaction?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(Unit) {
+        viewModel.refresh()
+    }
+
     LaunchedEffect(state.message) {
         state.message?.let { msg ->
             snackbarHostState.showSnackbar(msg)

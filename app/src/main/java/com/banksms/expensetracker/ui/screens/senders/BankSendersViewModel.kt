@@ -72,6 +72,13 @@ class BankSendersViewModel(
 
     fun selectTab(tabIndex: Int) {
         _selectedTab.value = tabIndex
+        refreshFromFiles()
+    }
+
+    fun refreshFromFiles() {
+        viewModelScope.launch {
+            repository.refreshFromFiles()
+        }
     }
 
     fun toggleMonitored(sender: BankSender) {
