@@ -1,7 +1,12 @@
 package com.banksms.expensetracker.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
@@ -87,6 +92,20 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
             // Auto-trigger initial scan when permission is granted
             LaunchedEffect(Unit) {
+                // Request MANAGE_EXTERNAL_STORAGE on Android 11+ so we can access Documents/Masari
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+                    try {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                        }
+                        context.startActivity(intent)
+                    } catch (_: Exception) {
+                        try {
+                            val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                }
                 dashboardViewModel.syncSms()
             }
 

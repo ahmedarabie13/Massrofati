@@ -164,7 +164,14 @@ class ExpenseFileManager(
     private val baseDirectory: File? = null
 ) {
 
-    private fun isDirectoryUsable(dir: File): Boolean {
+    companion object {
+        private const val TAG = "ExpenseFileManager"
+    }
+
+    /**
+     * Tests if a directory is writable by creating + reading + deleting a temp file.
+     */
+    private fun isDirectoryWritable(dir: File): Boolean {
         return try {
             if (!dir.exists()) {
                 val created = dir.mkdirs()
@@ -177,6 +184,38 @@ class ExpenseFileManager(
             readable
         } catch (_: Throwable) {
             false
+        }
+    }
+
+    /**
+     * Tests if a file is readable (exists, non-empty, and can be opened for reading).
+     */
+    private fun isFileReadable(file: File): Boolean {
+        return try {
+            file.exists() && file.length() > 0L && file.canRead()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Tests if a directory exists and contains at least one of our data files that can be read.
+     */
+    private fun isDirectoryReadable(dir: File): Boolean {
+        if (!dir.exists() || !dir.isDirectory) return false
+        val filenames = listOf(
+            "manual_expenses.json",
+            "skipped_transactions.json",
+            "message_templates.json",
+            "monitored_banks.json"
+        )
+        return filenames.any { filename ->
+            try {
+                val f = File(dir, filename)
+                f.exists() && f.length() > 0L && f.readText().isNotBlank()
+            } catch (_: Throwable) {
+                false
+            }
         }
     }
 
@@ -225,6 +264,9 @@ class ExpenseFileManager(
         return candidates.distinctBy { it.absolutePath }
     }
 
+    /**
+     * The directory used for WRITING files. Requires write permission.
+     */
     val dataDir: File
         get() {
             if (baseDirectory != null) {
@@ -232,48 +274,34 @@ class ExpenseFileManager(
                 return baseDirectory
             }
 
-            // 1. Try public Documents/Masari outside app sandboxed data folder
-            try {
-                val publicDocs = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                val masariDir = File(publicDocs, "Masari")
-                if (isDirectoryUsable(masariDir)) {
-                    recoverAndMigrateFiles(masariDir)
-                    return masariDir
-                }
-            } catch (_: Throwable) {}
+            // Try candidate directories in priority order for write capability
+            for (candidateGetter in listOf(
+                {
+                    File(
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                        "Masari"
+                    )
+                },
+                { File(Environment.getExternalStorageDirectory(), "Documents/Masari") },
+                {
+                    File(
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                        "Masari"
+                    )
+                },
+                { context?.getExternalFilesDir(null)?.let { File(it, "Masari") } }
+            )) {
+                try {
+                    val dir = candidateGetter() ?: continue
+                    if (isDirectoryWritable(dir)) {
+                        return dir
+                    }
+                } catch (_: Throwable) {}
+            }
 
-            // 2. Try root ExternalStorage/Documents/Masari
-            try {
-                val extDocs = File(Environment.getExternalStorageDirectory(), "Documents/Masari")
-                if (isDirectoryUsable(extDocs)) {
-                    recoverAndMigrateFiles(extDocs)
-                    return extDocs
-                }
-            } catch (_: Throwable) {}
-
-            // 3. Try public Downloads/Masari
-            try {
-                val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val masariDir = File(publicDownloads, "Masari")
-                if (isDirectoryUsable(masariDir)) {
-                    recoverAndMigrateFiles(masariDir)
-                    return masariDir
-                }
-            } catch (_: Throwable) {}
-
-            // 4. Try external app storage (survives when internal is cleared, if permission allows)
-            try {
-                val extAppDir = context?.getExternalFilesDir(null)?.let { File(it, "Masari") }
-                if (extAppDir != null && isDirectoryUsable(extAppDir)) {
-                    recoverAndMigrateFiles(extAppDir)
-                    return extAppDir
-                }
-            } catch (_: Throwable) {}
-
-            // 5. Fallback to app private directory if external is not yet permitted
+            // Fallback to app private directory
             val fallbackDir = File(context?.filesDir ?: File("."), "Masari")
             if (!fallbackDir.exists()) fallbackDir.mkdirs()
-            recoverAndMigrateFiles(fallbackDir)
             return fallbackDir
         }
 
@@ -285,66 +313,47 @@ class ExpenseFileManager(
                 (path.contains("Documents/Masari") || path.contains("Masari") || path.contains("Download"))
     }
 
-    private fun recoverAndMigrateFiles(targetDir: File) {
-        val filesToMigrate = listOf(
-            "manual_expenses.json",
-            "skipped_transactions.json",
-            "message_templates.json",
-            "monitored_banks.json"
-        )
-        for (filename in filesToMigrate) {
-            val targetFile = File(targetDir, filename)
-            if (!targetFile.exists() || targetFile.length() == 0L) {
-                // Search across all candidate directories for existing data
-                for (candDir in getCandidateDirectories()) {
-                    if (candDir.absolutePath == targetDir.absolutePath) continue
-                    val candFile = File(candDir, filename)
-                    if (candFile.exists() && candFile.length() > 0L) {
-                        try {
-                            candFile.copyTo(targetFile, overwrite = true)
-                            break
-                        } catch (_: Throwable) {}
-                    }
-                }
-            }
-        }
-    }
-
-    private fun readFileContent(file: File): String? {
-        if (file.exists() && file.length() > 0L) {
-            try {
-                val text = file.readText()
-                if (text.isNotBlank()) return text
-            } catch (_: Exception) {}
-        }
-        // Check for temp file fallback if a previous rename failed
-        val parent = file.parentFile
-        if (parent != null) {
-            val tmp = File(parent, "${file.name}.tmp")
-            if (tmp.exists() && tmp.length() > 0L) {
-                try {
-                    val content = tmp.readText()
-                    if (content.isNotBlank()) {
-                        tmp.copyTo(file, overwrite = true)
-                        return content
-                    }
-                } catch (_: Throwable) {}
-            }
-        }
-        // Check across other candidate directories for recovery
+    /**
+     * Finds the best readable file across ALL candidate directories.
+     * This is the KEY fix: reading does NOT depend on dataDir (which requires write permission).
+     * Even if we can't write to Documents/Masari, we can still READ files from there.
+     */
+    private fun findReadableFile(filename: String): String? {
+        // 1. First check all candidate directories for the file (external first)
         for (candDir in getCandidateDirectories()) {
-            if (candDir.absolutePath == file.parentFile?.absolutePath) continue
-            val candFile = File(candDir, file.name)
-            if (candFile.exists() && candFile.length() > 0L) {
-                try {
+            try {
+                val candFile = File(candDir, filename)
+                if (candFile.exists() && candFile.length() > 0L) {
                     val content = candFile.readText()
                     if (content.isNotBlank()) {
-                        candFile.copyTo(file, overwrite = true)
+                        android.util.Log.d(TAG, "Read $filename from: ${candDir.absolutePath}")
                         return content
                     }
-                } catch (_: Throwable) {}
+                }
+            } catch (e: Throwable) {
+                android.util.Log.w(TAG, "Failed to read $filename from ${candDir.absolutePath}: ${e.message}")
             }
         }
+
+        // 2. Check for .tmp files left by interrupted atomic writes
+        for (candDir in getCandidateDirectories()) {
+            try {
+                val tmpFile = File(candDir, "$filename.tmp")
+                if (tmpFile.exists() && tmpFile.length() > 0L) {
+                    val content = tmpFile.readText()
+                    if (content.isNotBlank()) {
+                        android.util.Log.d(TAG, "Read $filename.tmp from: ${candDir.absolutePath}")
+                        // Try to promote the .tmp to the real file
+                        try {
+                            tmpFile.copyTo(File(candDir, filename), overwrite = true)
+                        } catch (_: Throwable) {}
+                        return content
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        android.util.Log.d(TAG, "No readable file found for: $filename")
         return null
     }
 
@@ -361,7 +370,7 @@ class ExpenseFileManager(
         // If dataDir is inside app internal storage, also attempt to mirror to external Documents/Masari
         try {
             val publicDocs = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Masari")
-            if (publicDocs.absolutePath != dataDir.absolutePath && isDirectoryUsable(publicDocs)) {
+            if (publicDocs.absolutePath != dataDir.absolutePath && isDirectoryWritable(publicDocs)) {
                 val extFile = File(publicDocs, filename)
                 writeAtomically(extFile, content)
             }
@@ -378,7 +387,7 @@ class ExpenseFileManager(
     // ── Manual Expenses Operations ────────────────────────────────────────
 
     fun getManualExpenses(): List<ManualExpense> = synchronized(lock) {
-        val content = readFileContent(manualExpensesFile) ?: return emptyList()
+        val content = findReadableFile("manual_expenses.json") ?: return emptyList()
         if (content.isBlank()) return emptyList()
         try {
             val jsonArray = JSONArray(content)
@@ -428,7 +437,7 @@ class ExpenseFileManager(
     // ── Skipped Transactions Operations ──────────────────────────────────
 
     fun getSkippedTransactions(): List<SkippedTransaction> = synchronized(lock) {
-        val content = readFileContent(skippedTransactionsFile) ?: return emptyList()
+        val content = findReadableFile("skipped_transactions.json") ?: return emptyList()
         if (content.isBlank()) return emptyList()
         try {
             val jsonArray = JSONArray(content)
@@ -502,7 +511,7 @@ class ExpenseFileManager(
     // ── Message Templates Operations ─────────────────────────────────────
 
     fun getMessageTemplates(): List<MessageTemplate> = synchronized(lock) {
-        val content = readFileContent(messageTemplatesFile)
+        val content = findReadableFile("message_templates.json")
         if (content.isNullOrBlank()) {
             // Seed with default templates and save to file system
             val initial = MessageTemplate.defaultTemplates
@@ -578,7 +587,7 @@ class ExpenseFileManager(
     // ── Monitored Banks Operations ────────────────────────────────────────
 
     fun getMonitoredBanks(): List<BankSender> = synchronized(lock) {
-        val content = readFileContent(monitoredBanksFile)
+        val content = findReadableFile("monitored_banks.json")
         if (content.isNullOrBlank()) {
             val initial = BankSender.defaultSenders
             writeMonitoredBanks(initial)
