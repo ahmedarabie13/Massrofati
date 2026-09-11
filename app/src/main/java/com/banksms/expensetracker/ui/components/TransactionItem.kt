@@ -1,8 +1,6 @@
 package com.banksms.expensetracker.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,9 +20,9 @@ import androidx.compose.ui.unit.sp
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.model.TransactionType
 import com.banksms.expensetracker.ui.theme.CategoryColors
-import com.banksms.expensetracker.ui.theme.ExpenseCoral
-import com.banksms.expensetracker.ui.theme.IncomeEmerald
-import com.banksms.expensetracker.ui.theme.MasariEmerald
+import com.banksms.expensetracker.ui.theme.DribbbleAmountRed
+import com.banksms.expensetracker.ui.theme.DribbbleGreen
+import com.banksms.expensetracker.ui.theme.DribbblePurple
 import com.banksms.expensetracker.util.CurrencyFormatter
 import com.banksms.expensetracker.util.DateUtils
 
@@ -35,25 +33,21 @@ fun TransactionItem(
     modifier: Modifier = Modifier
 ) {
     val isExpense = transaction.type == TransactionType.EXPENSE
-    val amountColor = if (isExpense) ExpenseCoral else IncomeEmerald
+    val amountColor = if (isExpense) DribbbleAmountRed else DribbbleGreen
     val categoryColor = CategoryColors[transaction.category] ?: Color(0xFF64748B)
     val categoryIcon = getCategoryIcon(transaction.category, transaction.type)
 
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .border(
-                width = 0.8.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                shape = RoundedCornerShape(18.dp)
-            )
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
     ) {
         Row(
             modifier = Modifier
@@ -61,17 +55,12 @@ fun TransactionItem(
                 .padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Category Icon Avatar in Modern Squircle
+            // Category icon in soft tinted squircle
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(categoryColor.copy(alpha = 0.14f))
-                    .border(
-                        width = 0.8.dp,
-                        color = categoryColor.copy(alpha = 0.28f),
-                        shape = RoundedCornerShape(13.dp)
-                    ),
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(categoryColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -106,8 +95,7 @@ fun TransactionItem(
                     if (transaction.isManual) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = MasariEmerald.copy(alpha = 0.14f),
-                            border = CardDefaults.outlinedCardBorder(enabled = true)
+                            color = DribbblePurple.copy(alpha = 0.12f)
                         ) {
                             Text(
                                 text = "MANUAL",
@@ -116,7 +104,7 @@ fun TransactionItem(
                                     fontWeight = FontWeight.ExtraBold,
                                     letterSpacing = 0.5.sp
                                 ),
-                                color = MasariEmerald,
+                                color = DribbblePurple,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                             )
                         }

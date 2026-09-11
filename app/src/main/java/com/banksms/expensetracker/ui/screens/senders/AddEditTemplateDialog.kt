@@ -29,7 +29,7 @@ import com.banksms.expensetracker.data.parser.TemplateMatcher
 import com.banksms.expensetracker.data.parser.TemplateTestResult
 import com.banksms.expensetracker.ui.theme.ExpenseCoral
 import com.banksms.expensetracker.ui.theme.IncomeEmerald
-import com.banksms.expensetracker.ui.theme.MasariEmerald
+import com.banksms.expensetracker.ui.theme.DribbblePurple
 import com.banksms.expensetracker.util.CurrencyFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -155,7 +155,7 @@ fun AddEditTemplateDialog(
                         Icon(
                             imageVector = if (isEdit) Icons.Default.Edit else Icons.Default.Add,
                             contentDescription = null,
-                            tint = MasariEmerald
+                            tint = DribbblePurple
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
@@ -324,7 +324,7 @@ fun AddEditTemplateDialog(
                                 onClick = { runTest() },
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald)
+                                colors = ButtonDefaults.buttonColors(containerColor = DribbblePurple)
                             ) {
                                 Text("Test Pattern", fontSize = 12.sp)
                             }
@@ -492,7 +492,7 @@ fun AddEditTemplateDialog(
                             onDismiss()
                         },
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald),
+                        colors = ButtonDefaults.buttonColors(containerColor = DribbblePurple),
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(if (isEdit) "Save Template" else "Create Template", fontWeight = FontWeight.Bold)

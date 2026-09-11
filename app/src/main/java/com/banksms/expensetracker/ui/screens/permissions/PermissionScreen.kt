@@ -18,8 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.banksms.expensetracker.ui.components.MasariBrandEmblem
-import com.banksms.expensetracker.ui.theme.MasariEmerald
+import com.banksms.expensetracker.ui.components.RizeqBrandEmblem
+import com.banksms.expensetracker.ui.theme.DribbblePurple
 
 @Composable
 fun PermissionScreen(
@@ -33,12 +33,12 @@ fun PermissionScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        MasariBrandEmblem(modifier = Modifier.size(64.dp))
+        RizeqBrandEmblem(modifier = Modifier.size(64.dp))
 
         Spacer(modifier = Modifier.height(20.dp))
 
         Text(
-            text = "Welcome to Masari",
+            text = "Welcome to Massrofati",
             style = MaterialTheme.typography.headlineMedium.copy(
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = 0.5.sp
@@ -49,10 +49,10 @@ fun PermissionScreen(
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "مصاري - تتبع مصاريفك بذكاء",
+            text = "مصروفاتي - تتبع صرفك بذكاء",
             style = MaterialTheme.typography.titleSmall.copy(
                 fontWeight = FontWeight.SemiBold,
-                color = MasariEmerald
+                color = DribbblePurple
             ),
             textAlign = TextAlign.Center
         )
@@ -60,7 +60,7 @@ fun PermissionScreen(
         Spacer(modifier = Modifier.height(14.dp))
 
         Text(
-            text = "To track your bank transactions, expenses, and credits automatically, Masari needs permission to read SMS messages from your approved banks.",
+            text = "To track your bank transactions, expenses, and credits automatically, Massrofati needs permission to read SMS messages from your approved banks.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -98,7 +98,7 @@ fun PermissionScreen(
                 .fillMaxWidth()
                 .height(52.dp),
             shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald)
+            colors = ButtonDefaults.buttonColors(containerColor = DribbblePurple)
         ) {
             Text(
                 text = "Grant SMS Permission",
@@ -122,13 +122,13 @@ private fun PrivacyItem(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .background(MasariEmerald.copy(alpha = 0.12f)),
+                .background(DribbblePurple.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MasariEmerald,
+                tint = DribbblePurple,
                 modifier = Modifier.size(18.dp)
             )
         }

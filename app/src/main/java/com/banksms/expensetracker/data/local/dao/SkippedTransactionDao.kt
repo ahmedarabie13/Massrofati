@@ -33,6 +33,26 @@ interface SkippedTransactionDao {
     @Query("SELECT * FROM skipped_transactions ORDER BY skippedAt DESC")
     suspend fun getAll(): List<SkippedTransactionEntity>
 
+    /**
+     * Looks up an existing skipped transaction by its natural key so migration
+     * can be re-run without creating duplicate rows.
+     */
+    @Query("""
+        SELECT * FROM skipped_transactions
+        WHERE (:originalMessageId != 0 AND originalMessageId = :originalMessageId)
+           OR (rawBody != '' AND sender = :sender AND rawBody = :rawBody)
+           OR (sender = :sender AND ABS(timestamp - :timestamp) < 60000
+               AND ABS(amount - :amount) < 0.001)
+        LIMIT 1
+    """)
+    suspend fun findExisting(
+        originalMessageId: Long,
+        sender: String,
+        rawBody: String,
+        amount: Double,
+        timestamp: Long
+    ): SkippedTransactionEntity?
+
     @Query("""
         SELECT COUNT(*) FROM skipped_transactions 
         WHERE (originalMessageId = :messageId AND :messageId != 0)

@@ -24,7 +24,7 @@ import com.banksms.expensetracker.data.parser.BankSmsParser
 import com.banksms.expensetracker.data.parser.ParsedTransaction
 import com.banksms.expensetracker.ui.theme.ExpenseCoral
 import com.banksms.expensetracker.ui.theme.IncomeEmerald
-import com.banksms.expensetracker.ui.theme.MasariEmerald
+import com.banksms.expensetracker.ui.theme.DribbblePurple
 import com.banksms.expensetracker.util.CurrencyFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,7 +78,7 @@ fun SmsParserSandboxDialog(
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = null,
-                            tint = MasariEmerald
+                            tint = DribbblePurple
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
@@ -236,7 +236,7 @@ fun SmsParserSandboxDialog(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald)
+                    colors = ButtonDefaults.buttonColors(containerColor = DribbblePurple)
                 ) {
                     Text("Close", fontWeight = FontWeight.Bold)
                 }

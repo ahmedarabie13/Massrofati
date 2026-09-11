@@ -33,13 +33,13 @@ fun TransactionTypeFilterRow(
                 )
             },
             colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = com.banksms.expensetracker.ui.theme.MasariEmerald.copy(alpha = 0.16f),
-                selectedLabelColor = com.banksms.expensetracker.ui.theme.MasariEmerald
+                selectedContainerColor = com.banksms.expensetracker.ui.theme.DribbblePurple.copy(alpha = 0.16f),
+                selectedLabelColor = com.banksms.expensetracker.ui.theme.DribbblePurple
             ),
             border = FilterChipDefaults.filterChipBorder(
                 enabled = true,
                 selected = selectedType == null,
-                selectedBorderColor = com.banksms.expensetracker.ui.theme.MasariEmerald.copy(alpha = 0.6f)
+                selectedBorderColor = com.banksms.expensetracker.ui.theme.DribbblePurple.copy(alpha = 0.6f)
             ),
             shape = RoundedCornerShape(20.dp)
         )

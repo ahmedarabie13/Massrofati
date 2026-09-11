@@ -10,14 +10,34 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.layout.Column
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -28,6 +48,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.banksms.expensetracker.BankSmsApp
+import com.banksms.expensetracker.ui.components.AddEditExpenseDialog
 import com.banksms.expensetracker.ui.navigation.Screen
 import com.banksms.expensetracker.ui.screens.dashboard.DashboardScreen
 import com.banksms.expensetracker.ui.screens.dashboard.DashboardViewModel
@@ -40,10 +61,23 @@ import com.banksms.expensetracker.ui.screens.skipped.SkippedScreen
 import com.banksms.expensetracker.ui.screens.skipped.SkippedViewModel
 import com.banksms.expensetracker.ui.screens.transactions.TransactionsScreen
 import com.banksms.expensetracker.ui.screens.transactions.TransactionsViewModel
-import com.banksms.expensetracker.ui.theme.MasariEmerald
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import com.banksms.expensetracker.ui.theme.DribbblePurple
+
+/** Tabs shown in the floating bottom bar, in order. Skipped lives inside Transactions. */
+private val barTabs = listOf(
+    Screen.Dashboard,
+    Screen.Transactions,
+    Screen.Reports,
+    Screen.Senders
+)
+
+private fun barLabel(screen: Screen): String = when (screen) {
+    is Screen.Dashboard -> "Home"
+    is Screen.Transactions -> "Transactions"
+    is Screen.Reports -> "Report"
+    is Screen.Senders -> "Banks"
+    else -> screen.title
+}
 
 @Composable
 fun MainScreen(modifier: Modifier = Modifier) {
@@ -90,9 +124,23 @@ fun MainScreen(modifier: Modifier = Modifier) {
             val reportsViewModel: ReportsViewModel = viewModel(factory = ReportsViewModel.Factory(repository))
             val sendersViewModel: BankSendersViewModel = viewModel(factory = BankSendersViewModel.Factory(repository))
 
+            var showAddExpense by remember { mutableStateOf(false) }
+
+            fun navigateTo(route: String) {
+                if (currentRoute != route) {
+                    navController.navigate(route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+            }
+
             // Auto-trigger initial scan when permission is granted
             LaunchedEffect(Unit) {
-                // Request MANAGE_EXTERNAL_STORAGE on Android 11+ so we can access Documents/Masari
+                // Request MANAGE_EXTERNAL_STORAGE on Android 11+ so we can access Documents/Masari (legacy data folder)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
                     try {
                         val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
@@ -110,84 +158,106 @@ fun MainScreen(modifier: Modifier = Modifier) {
             }
 
             Scaffold(
+                containerColor = MaterialTheme.colorScheme.background,
                 bottomBar = {
-                    Column {
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                            thickness = 0.8.dp
-                        )
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 0.dp
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(horizontal = 20.dp)
+                            .padding(bottom = 18.dp, top = 26.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 12.dp,
+                            tonalElevation = 0.dp,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Screen.items.forEach { screen ->
-                                val selected = currentRoute == screen.route
-                                NavigationBarItem(
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (selected) screen.selectedIcon else screen.unselectedIcon,
-                                            contentDescription = screen.title
-                                        )
-                                    },
-                                    label = {
-                                        Text(
-                                            text = screen.title,
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                                fontSize = 11.sp
-                                            )
-                                        )
-                                    },
-                                    selected = selected,
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MasariEmerald,
-                                        selectedTextColor = MasariEmerald,
-                                        indicatorColor = MasariEmerald.copy(alpha = 0.15f),
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                    ),
-                                    onClick = {
-                                        if (currentRoute != screen.route) {
-                                            navController.navigate(screen.route) {
-                                                popUpTo(navController.graph.findStartDestination().id) {
-                                                    saveState = true
-                                                }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
-                                        }
-                                    }
-                                )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                barTabs.take(2).forEach { screen ->
+                                    DribbbleNavItem(
+                                        label = barLabel(screen),
+                                        selected = currentRoute == screen.route,
+                                        selectedIcon = screen.selectedIcon,
+                                        unselectedIcon = screen.unselectedIcon,
+                                        onClick = { navigateTo(screen.route) }
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(64.dp))
+                                barTabs.drop(2).forEach { screen ->
+                                    DribbbleNavItem(
+                                        label = barLabel(screen),
+                                        selected = currentRoute == screen.route,
+                                        selectedIcon = screen.selectedIcon,
+                                        unselectedIcon = screen.unselectedIcon,
+                                        onClick = { navigateTo(screen.route) }
+                                    )
+                                }
                             }
+                        }
+
+                        FloatingActionButton(
+                            onClick = { showAddExpense = true },
+                            shape = CircleShape,
+                            containerColor = DribbblePurple,
+                            contentColor = Color.White,
+                            elevation = FloatingActionButtonDefaults.elevation(
+                                defaultElevation = 8.dp,
+                                pressedElevation = 10.dp
+                            ),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .offset(y = (-24).dp)
+                                .size(60.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Add Expense",
+                                modifier = Modifier.size(28.dp)
+                            )
                         }
                     }
                 },
-                modifier = modifier.fillMaxSize()
-            ) { innerPadding ->
+                modifier = modifier.fillMaxSize(),
+                // Outer scaffold only offsets the bottom bar; each inner screen owns
+                // its own Scaffold + top app bar, which draw edge-to-edge behind the
+                // status bar. Zeroing this prevents double status-bar insets.
+                contentWindowInsets = WindowInsets(0, 0, 0, 0)
+            ) { _ ->
+                // No bottom inset: content flows full-bleed beneath the floating
+                // dock. Each list owns bottom clearance spacers; the bar itself
+                // is transparent outside the pill so nothing solid sits under it.
                 NavHost(
                     navController = navController,
                     startDestination = Screen.Dashboard.route,
-                    modifier = Modifier.padding(innerPadding),
+                    modifier = Modifier.fillMaxSize(),
                     enterTransition = { fadeIn(animationSpec = tween(180)) },
                     exitTransition = { fadeOut(animationSpec = tween(180)) }
                 ) {
                     composable(Screen.Dashboard.route) {
                         DashboardScreen(
                             viewModel = dashboardViewModel,
-                            onNavigateToTransactions = {
-                                navController.navigate(Screen.Transactions.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
+                            onNavigateToTransactions = { navigateTo(Screen.Transactions.route) },
+                            onNavigateToReports = { navigateTo(Screen.Reports.route) }
                         )
                     }
 
                     composable(Screen.Transactions.route) {
-                        TransactionsScreen(viewModel = transactionsViewModel)
+                        TransactionsScreen(
+                            viewModel = transactionsViewModel,
+                            onNavigateToSkipped = { navigateTo(Screen.Skipped.route) }
+                        )
                     }
 
                     composable(Screen.Skipped.route) {
@@ -203,6 +273,55 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     }
                 }
             }
+
+            if (showAddExpense) {
+                AddEditExpenseDialog(
+                    initialExpense = null,
+                    onDismiss = { showAddExpense = false },
+                    onSave = { expense ->
+                        dashboardViewModel.addManualExpense(expense)
+                        showAddExpense = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DribbbleNavItem(
+    label: String,
+    selected: Boolean,
+    selectedIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    unselectedIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    val contentColor = if (selected) MaterialTheme.colorScheme.onSurface
+    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+    Surface(
+        onClick = onClick,
+        color = Color.Transparent,
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        androidx.compose.foundation.layout.Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Icon(
+                imageVector = if (selected) selectedIcon else unselectedIcon,
+                contentDescription = label,
+                tint = contentColor,
+                modifier = Modifier.size(24.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 11.sp
+                ),
+                color = contentColor,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }

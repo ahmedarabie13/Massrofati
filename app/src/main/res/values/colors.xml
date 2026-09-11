@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Masari Brand Colors -->
-    <color name="masari_emerald">#00D084</color>
-    <color name="masari_emerald_dark">#059669</color>
-    <color name="masari_mint">#10B981</color>
-    <color name="masari_cyan">#06B6D4</color>
-    <color name="masari_obsidian">#0B0F19</color>
-    <color name="masari_midnight">#111827</color>
-    <color name="masari_coral">#F43F5E</color>
+    <!-- Rizeq Brand Colors -->
+    <color name="rizeq_lapis">#1E6FB8</color>
+    <color name="rizeq_lapis_deep">#14518C</color>
+    <color name="rizeq_nile">#0E9A6A</color>
+    <color name="rizeq_dahab">#C2911B</color>
+    <color name="rizeq_obsidian">#14100A</color>
+    <color name="rizeq_midnight">#1E1810</color>
+    <color name="rizeq_terracotta">#C0522E</color>
     <color name="white">#FFFFFFFF</color>
     <color name="black">#FF000000</color>
 </resources>

@@ -30,10 +30,10 @@ import com.banksms.expensetracker.data.model.BankSender
 import com.banksms.expensetracker.data.model.MessageTemplate
 import com.banksms.expensetracker.data.model.TransactionType
 import com.banksms.expensetracker.ui.components.BankBadge
-import com.banksms.expensetracker.ui.components.MasariTopAppBar
+import com.banksms.expensetracker.ui.components.RizeqTopAppBar
 import com.banksms.expensetracker.ui.theme.ExpenseCoral
 import com.banksms.expensetracker.ui.theme.IncomeEmerald
-import com.banksms.expensetracker.ui.theme.MasariEmerald
+import com.banksms.expensetracker.ui.theme.DribbblePurple
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,9 +84,10 @@ fun BankSendersScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            MasariTopAppBar(
+            RizeqTopAppBar(
                 title = "Banks & Parser",
                 subtitle = if (state.selectedTab == 0) "Monitored Bank Senders" else "Custom SMS Templates",
                 showBrandEmblem = false,
@@ -95,14 +96,14 @@ fun BankSendersScreen(
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Reload from File System",
-                            tint = MasariEmerald
+                            tint = DribbblePurple
                         )
                     }
                     IconButton(onClick = { showSandboxDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = "Test SMS Parser",
-                            tint = MasariEmerald
+                            tint = DribbblePurple
                         )
                     }
                     if (state.selectedTab == 0) {
@@ -114,7 +115,7 @@ fun BankSendersScreen(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(20.dp),
                                     strokeWidth = 2.dp,
-                                    color = MasariEmerald
+                                    color = DribbblePurple
                                 )
                             } else {
                                 Icon(
@@ -128,24 +129,27 @@ fun BankSendersScreen(
             )
         },
         floatingActionButton = {
-            if (state.selectedTab == 0) {
-                FloatingActionButton(
-                    onClick = { showAddBankDialog = true },
-                    containerColor = MasariEmerald,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add Bank")
+            // Lifted clear of the floating dock
+            Box(modifier = Modifier.padding(bottom = 104.dp)) {
+                if (state.selectedTab == 0) {
+                    FloatingActionButton(
+                        onClick = { showAddBankDialog = true },
+                        containerColor = DribbblePurple,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "Add Bank")
+                    }
+                } else {
+                    ExtendedFloatingActionButton(
+                        onClick = { showAddTemplateDialog = true },
+                        icon = { Icon(Icons.Default.Add, contentDescription = "New Template") },
+                        text = { Text("New Template", fontWeight = FontWeight.Bold) },
+                        containerColor = DribbblePurple,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shape = RoundedCornerShape(16.dp)
+                    )
                 }
-            } else {
-                ExtendedFloatingActionButton(
-                    onClick = { showAddTemplateDialog = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = "New Template") },
-                    text = { Text("New Template", fontWeight = FontWeight.Bold) },
-                    containerColor = MasariEmerald,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = RoundedCornerShape(16.dp)
-                )
             }
         },
         modifier = modifier
@@ -159,7 +163,7 @@ fun BankSendersScreen(
             PrimaryTabRow(
                 selectedTabIndex = state.selectedTab,
                 containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MasariEmerald,
+                contentColor = DribbblePurple,
                 divider = {
                     HorizontalDivider(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
@@ -246,7 +250,7 @@ fun BankSendersScreen(
                     }
 
                     item {
-                        Spacer(modifier = Modifier.height(84.dp))
+                        Spacer(modifier = Modifier.height(128.dp)) // Clearance for FAB + floating dock
                     }
                 }
             } else {
@@ -322,7 +326,7 @@ fun BankSendersScreen(
                     }
 
                     item {
-                        Spacer(modifier = Modifier.height(84.dp))
+                        Spacer(modifier = Modifier.height(128.dp)) // Clearance for FAB + floating dock
                     }
                 }
             }
@@ -495,7 +499,7 @@ private fun MessageTemplateCard(
                     onCheckedChange = { onToggle() },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = MasariEmerald
+                        checkedTrackColor = DribbblePurple
                     )
                 )
             }
@@ -613,7 +617,7 @@ private fun BankSenderItem(
                     onCheckedChange = { onToggle() },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = MasariEmerald
+                        checkedTrackColor = DribbblePurple
                     )
                 )
             }
@@ -692,7 +696,7 @@ private fun AddEditBankDialog(
                         onCheckedChange = { isMonitored = it },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = MasariEmerald
+                            checkedTrackColor = DribbblePurple
                         )
                     )
                 }
@@ -714,7 +718,7 @@ private fun AddEditBankDialog(
                 },
                 enabled = senderId.isNotBlank(),
                 shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald)
+                colors = ButtonDefaults.buttonColors(containerColor = DribbblePurple)
             ) {
                 Text(if (isEditing) "Save Changes" else "Add Bank")
             }
@@ -846,7 +850,7 @@ private fun StoragePersistenceCard(
                     Icon(
                         imageVector = Icons.Default.FolderOpen,
                         contentDescription = null,
-                        tint = MasariEmerald,
+                        tint = DribbblePurple,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -859,12 +863,12 @@ private fun StoragePersistenceCard(
 
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (isPublicStorage) MasariEmerald.copy(alpha = 0.14f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                    color = if (isPublicStorage) DribbblePurple.copy(alpha = 0.14f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
                 ) {
                     Text(
                         text = if (isPublicStorage) "Public Storage (Persistent)" else "Internal Sandboxed",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.5.sp),
-                        color = if (isPublicStorage) MasariEmerald else MaterialTheme.colorScheme.error,
+                        color = if (isPublicStorage) DribbblePurple else MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                     )
                 }
@@ -1014,14 +1018,14 @@ private fun DiscoveredSendersBottomSheet(
                                 Text(
                                     text = "Monitored",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MasariEmerald
+                                    color = DribbblePurple
                                 )
                             } else {
                                 Button(
                                     onClick = { onAddSender(item.address) },
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                     shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = MasariEmerald)
+                                    colors = ButtonDefaults.buttonColors(containerColor = DribbblePurple)
                                 ) {
                                     Text("+ Track")
                                 }

@@ -6,7 +6,7 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Masari "M" Financial Trajectory Mark -->
+    <!-- Rizeq "R" Financial Trajectory Mark -->
     <!-- Left Pillar & Ascending Curve -->
     <path
         android:pathData="M30,76 L30,42 C30,36 34,32 40,32 L40,32 C43,32 46,34 48,37 L54,46 L60,37 C62,34 65,32 68,32 L68,32 C74,32 78,36 78,42 L78,76 C78,77.1 77.1,78 76,78 L71,78 C69.9,78 69,77.1 69,76 L69,45 L58,61 C57,62.5 55,63.5 53.5,63.5 C52,63.5 50,62.5 49,61 L38,45 L38,76 C38,77.1 37.1,78 36,78 L31,78 C29.9,78 29,77.1 30,76 Z">
@@ -17,9 +17,9 @@
                 android:endX="78"
                 android:endY="32"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#00D084"/>
-                <item android:offset="0.6" android:color="#10B981"/>
-                <item android:offset="1.0" android:color="#06B6D4"/>
+                <item android:offset="0.0" android:color="#1E6FB8"/>
+                <item android:offset="0.6" android:color="#0E9A6A"/>
+                <item android:offset="1.0" android:color="#C2911B"/>
             </gradient>
         </aapt:attr>
     </path>
@@ -34,8 +34,8 @@
                 android:endX="80"
                 android:endY="28"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#00D084"/>
-                <item android:offset="1.0" android:color="#38BDF8"/>
+                <item android:offset="0.0" android:color="#1E6FB8"/>
+                <item android:offset="1.0" android:color="#DEB344"/>
             </gradient>
         </aapt:attr>
     </path>
@@ -43,5 +43,5 @@
     <!-- Glowing Accent Node -->
     <path
         android:pathData="M54,69m-3.5,0a3.5,3.5 0 1,1 7,0a3.5,3.5 0 1,1 -7,0"
-        android:fillColor="#00D084"/>
+        android:fillColor="#DEB344"/>
 </vector>

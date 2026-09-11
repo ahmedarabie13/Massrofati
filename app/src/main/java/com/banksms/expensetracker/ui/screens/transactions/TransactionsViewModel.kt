@@ -23,6 +23,7 @@ data class TransactionsUiState(
     val searchQuery: String = "",
     val transactions: List<Transaction> = emptyList(),
     val availableBanks: List<String> = emptyList(),
+    val skippedCount: Int = 0,
     val isLoading: Boolean = false
 )
 
@@ -71,8 +72,9 @@ class TransactionsViewModel(
     val uiState: StateFlow<TransactionsUiState> = combine(
         _filterState,
         _transactions,
-        _senders
-    ) { filterParams, transactions, senders ->
+        _senders,
+        repository.skippedTransactions
+    ) { filterParams, transactions, senders, skipped ->
         TransactionsUiState(
             dateRange = filterParams.range,
             selectedType = filterParams.type,
@@ -80,7 +82,8 @@ class TransactionsViewModel(
             selectedCategory = filterParams.category,
             searchQuery = filterParams.query,
             transactions = transactions,
-            availableBanks = senders.map { it.senderId }
+            availableBanks = senders.map { it.senderId },
+            skippedCount = skipped.size
         )
     }.stateIn(
         scope = viewModelScope,

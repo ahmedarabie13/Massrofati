@@ -1,7 +1,6 @@
 package com.banksms.expensetracker.ui.screens.skipped
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,8 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.banksms.expensetracker.data.file.SkippedTransaction
 import com.banksms.expensetracker.ui.components.BankBadge
-import com.banksms.expensetracker.ui.components.MasariTopAppBar
-import com.banksms.expensetracker.ui.theme.MasariEmerald
+import com.banksms.expensetracker.ui.components.RizeqTopAppBar
+import com.banksms.expensetracker.ui.theme.DribbblePurple
 import com.banksms.expensetracker.util.CurrencyFormatter
 import com.banksms.expensetracker.util.DateUtils
 
@@ -50,7 +49,7 @@ fun SkippedScreen(
         val tx = transactionToRestore!!
         AlertDialog(
             onDismissRequest = { transactionToRestore = null },
-            icon = { Icon(Icons.Default.Restore, contentDescription = null, tint = MasariEmerald) },
+            icon = { Icon(Icons.Default.Restore, contentDescription = null, tint = DribbblePurple) },
             title = { Text("Restore Transaction?") },
             text = {
                 Text(
@@ -77,8 +76,9 @@ fun SkippedScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            MasariTopAppBar(
+            RizeqTopAppBar(
                 title = "Skipped",
                 subtitle = "Excluded From Calculations",
                 showBrandEmblem = false
@@ -97,12 +97,14 @@ fun SkippedScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
-                border = CardDefaults.outlinedCardBorder(enabled = true),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant
+                )
             ) {
                 Row(
                     modifier = Modifier
@@ -146,7 +148,7 @@ fun SkippedScreen(
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 18.sp,
-                                color = MasariEmerald
+                                color = DribbblePurple
                             )
                         )
                     }
@@ -178,7 +180,7 @@ fun SkippedScreen(
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MasariEmerald,
+                    focusedBorderColor = DribbblePurple,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                     focusedContainerColor = MaterialTheme.colorScheme.surface,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surface
@@ -192,7 +194,8 @@ fun SkippedScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(32.dp),
+                        .padding(32.dp)
+                        .padding(bottom = 64.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -200,14 +203,14 @@ fun SkippedScreen(
                             modifier = Modifier
                                 .size(56.dp)
                                 .clip(CircleShape)
-                                .background(MasariEmerald.copy(alpha = 0.12f)),
+                                .background(DribbblePurple.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
                                 contentDescription = null,
                                 modifier = Modifier.size(28.dp),
-                                tint = MasariEmerald
+                                tint = DribbblePurple
                             )
                         }
                         Spacer(modifier = Modifier.height(16.dp))
@@ -240,7 +243,7 @@ fun SkippedScreen(
                     }
 
                     item {
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(128.dp)) // Clearance for the floating dock
                     }
                 }
             }
@@ -254,17 +257,13 @@ private fun SkippedTransactionCard(
     onRestore: () -> Unit
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .border(
-                width = 0.8.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(16.dp)
-            ),
-        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant
+        )
     ) {
         Column(
             modifier = Modifier
@@ -343,7 +342,7 @@ private fun SkippedTransactionCard(
                         imageVector = Icons.Default.Restore,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
-                        tint = MasariEmerald
+                        tint = DribbblePurple
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Restore", style = MaterialTheme.typography.labelMedium)

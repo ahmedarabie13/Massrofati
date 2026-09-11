@@ -24,15 +24,18 @@ import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.model.TransactionType
 import com.banksms.expensetracker.ui.components.AddEditExpenseDialog
 import com.banksms.expensetracker.ui.components.DateRangeSelectionBottomSheet
-import com.banksms.expensetracker.ui.components.MasariTopAppBar
+import com.banksms.expensetracker.ui.components.RizeqTopAppBar
 import com.banksms.expensetracker.ui.components.TransactionItem
 import com.banksms.expensetracker.ui.components.TransactionTypeFilterRow
-import com.banksms.expensetracker.ui.theme.MasariEmerald
+import com.banksms.expensetracker.ui.theme.DribbbleCoral
+import com.banksms.expensetracker.ui.theme.DribbbleCoralPale
+import com.banksms.expensetracker.ui.theme.DribbblePurple
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionsScreen(
     viewModel: TransactionsViewModel,
+    onNavigateToSkipped: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -42,22 +45,26 @@ fun TransactionsScreen(
     var editingManualExpense by remember { mutableStateOf<ManualExpense?>(null) }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            MasariTopAppBar(
+            RizeqTopAppBar(
                 title = "Transactions",
                 subtitle = "${state.transactions.size} records found",
                 showBrandEmblem = false
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showAddExpenseDialog = true },
-                icon = { Icon(Icons.Default.Add, contentDescription = "Add Expense") },
-                text = { Text("Add Expense", fontWeight = FontWeight.Bold) },
-                containerColor = MasariEmerald,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = RoundedCornerShape(16.dp)
-            )
+            // Lifted clear of the floating dock
+            Box(modifier = Modifier.padding(bottom = 104.dp)) {
+                ExtendedFloatingActionButton(
+                    onClick = { showAddExpenseDialog = true },
+                    icon = { Icon(Icons.Default.Add, contentDescription = "Add Expense") },
+                    text = { Text("Add Expense", fontWeight = FontWeight.Bold) },
+                    containerColor = DribbblePurple,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
         },
         modifier = modifier
     ) { innerPadding ->
@@ -91,7 +98,7 @@ fun TransactionsScreen(
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MasariEmerald,
+                    focusedBorderColor = DribbblePurple,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                     focusedContainerColor = MaterialTheme.colorScheme.surface,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surface
@@ -120,7 +127,7 @@ fun TransactionsScreen(
                         Icon(
                             imageVector = Icons.Default.CalendarToday,
                             contentDescription = null,
-                            tint = MasariEmerald,
+                            tint = DribbblePurple,
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
@@ -184,13 +191,23 @@ fun TransactionsScreen(
 
             Spacer(modifier = Modifier.height(4.dp))
 
+            // Skipped review entry — always visible so the view is never orphaned
+            SkippedReviewRow(
+                count = state.skippedCount,
+                onClick = onNavigateToSkipped,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
             // Transactions List
             if (state.transactions.isEmpty()) {
                 val hasActiveFilters = state.searchQuery.isNotEmpty() || state.selectedType != null || state.selectedBank != null
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(24.dp),
+                        .padding(24.dp)
+                        .padding(bottom = 64.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Card(
@@ -269,7 +286,7 @@ fun TransactionsScreen(
                     }
 
                     item {
-                        Spacer(modifier = Modifier.height(84.dp)) // Padding for Extended FAB
+                        Spacer(modifier = Modifier.height(128.dp)) // Clearance for FAB + floating dock
                     }
                 }
             }
@@ -323,6 +340,83 @@ fun TransactionsScreen(
                 onDismiss = { editingManualExpense = null },
                 onSave = { updated -> viewModel.updateManualExpense(updated) },
                 onDelete = { manualId -> viewModel.deleteManualExpense(manualId) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SkippedReviewRow(
+    count: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.VisibilityOff,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Skipped",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = if (count > 0) "$count hidden from reports" else "Nothing hidden",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (count > 0) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = DribbbleCoralPale
+                ) {
+                    Text(
+                        text = "$count",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 11.sp
+                        ),
+                        color = DribbbleCoral,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
             )
         }
     }

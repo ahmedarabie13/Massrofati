@@ -290,7 +290,7 @@ fun AddEditExpenseDialog(
                         },
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = com.banksms.expensetracker.ui.theme.MasariEmerald,
+                            containerColor = com.banksms.expensetracker.ui.theme.DribbblePurple,
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         ),
                         modifier = Modifier.weight(1f)

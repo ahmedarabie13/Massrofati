@@ -27,6 +27,8 @@ class BankSmsApp : Application() {
         val smsReader = SmsReader(this)
         fileManager = ExpenseFileManager(this)
         persistentDatabase = PersistentDatabase.getInstance(this, fileManager)
+        // Kick off the idempotent JSON -> DB migration (safe to call repeatedly).
+        PersistentDatabase.ensureMigrated(fileManager)
         repository = TransactionRepository(
             transactionDao = database.transactionDao(),
             bankSenderDao = database.bankSenderDao(),
