@@ -661,6 +661,12 @@ class ExpenseFileManager(
         }
     }
 
+    fun writeJsonBackup(filename: String, content: String) = synchronized(lock) {
+        val targetFile = File(dataDir, filename)
+        writeAtomically(targetFile, content)
+        mirrorWrite(filename, content)
+    }
+
     // ── Persistent Files Wiper ────────────────────────────────────────────
 
     fun clearAllFiles(): Boolean = synchronized(lock) {

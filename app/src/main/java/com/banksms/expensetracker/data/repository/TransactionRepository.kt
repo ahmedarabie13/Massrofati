@@ -3,16 +3,18 @@ package com.banksms.expensetracker.data.repository
 import com.banksms.expensetracker.data.file.ExpenseFileManager
 import com.banksms.expensetracker.data.file.ManualExpense
 import com.banksms.expensetracker.data.file.SkippedTransaction
+import com.banksms.expensetracker.data.local.PersistentDatabase
 import com.banksms.expensetracker.data.local.dao.BankSenderDao
 import com.banksms.expensetracker.data.local.dao.TransactionDao
-import com.banksms.expensetracker.data.local.entity.BankSenderEntity
-import com.banksms.expensetracker.data.local.entity.TransactionEntity
+import com.banksms.expensetracker.data.local.entity.*
 import com.banksms.expensetracker.data.model.*
 import com.banksms.expensetracker.data.parser.BankSmsParser
 import com.banksms.expensetracker.data.reader.DiscoveredSender
 import com.banksms.expensetracker.data.reader.SmsReader
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class SyncResult(
@@ -25,14 +27,27 @@ class TransactionRepository(
     private val transactionDao: TransactionDao,
     private val bankSenderDao: BankSenderDao,
     private val smsReader: SmsReader,
-    private val fileManager: ExpenseFileManager
+    private val fileManager: ExpenseFileManager,
+    private val persistentDb: PersistentDatabase
 ) {
+
+    // Persistent DB DAOs
+    private val pManualDao get() = persistentDb.manualExpenseDao()
+    private val pSkippedDao get() = persistentDb.skippedTransactionDao()
+    private val pTemplateDao get() = persistentDb.messageTemplateDao()
+    private val pBankDao get() = persistentDb.monitoredBankDao()
 
     private val _skippedTransactions = MutableStateFlow<List<SkippedTransaction>>(fileManager.getSkippedTransactions())
     val skippedTransactions: StateFlow<List<SkippedTransaction>> = _skippedTransactions.asStateFlow()
 
-    private val _messageTemplates = MutableStateFlow<List<MessageTemplate>>(fileManager.getMessageTemplates())
+    private val _messageTemplates = MutableStateFlow<List<MessageTemplate>>(MessageTemplate.defaultTemplates)
     val messageTemplates: StateFlow<List<MessageTemplate>> = _messageTemplates.asStateFlow()
+
+    init {
+        CoroutineScope(Dispatchers.IO).launch {
+            refreshFromFiles()
+        }
+    }
 
     /**
      * Processes an incoming real-time SMS from BroadcastReceiver with full deduplication and skip filtering.
@@ -53,12 +68,12 @@ class TransactionRepository(
         }
         if (!isMonitored) return@withContext false
 
-        // Check if this transaction is marked as skipped in the file
-        if (fileManager.isSkipped(0L, sender, timestamp, body)) {
+        // Check if this transaction is marked as skipped in persistent DB
+        if (isSkippedInDb(0L, sender, timestamp, body)) {
             return@withContext false
         }
 
-        val enabledTemplates = fileManager.getMessageTemplates().filter { it.isEnabled }
+        val enabledTemplates = pTemplateDao.getEnabled().map { it.toDomain() }
         val parsed = BankSmsParser.parse(body, sender, enabledTemplates) ?: return@withContext false
 
         // Prevent inserting if this transaction is already present
@@ -84,7 +99,7 @@ class TransactionRepository(
     }
 
     /**
-     * Scans both SMS messages and the local manual expenses file.
+     * Scans both SMS messages and the persistent DB manual expenses.
      * Deduplicates against existing transactions and respects skipped transaction records.
      */
     suspend fun syncTransactionsFromSms(): SyncResult = withContext(Dispatchers.IO) {
@@ -92,12 +107,12 @@ class TransactionRepository(
             // 1. Clean up any historical duplicate transactions
             transactionDao.deleteDuplicates()
 
-            // 2. Reload message templates from file system
-            val templates = fileManager.getMessageTemplates()
+            // 2. Read message templates from persistent DB
+            val templates = pTemplateDao.getAll().map { it.toDomain() }
             _messageTemplates.value = templates
 
-            // 3. Refresh and enforce skipped transactions from the file
-            val skippedList = fileManager.getSkippedTransactions()
+            // 3. Refresh and enforce skipped transactions from persistent DB
+            val skippedList = pSkippedDao.getAll().map { it.toDomain() }
             _skippedTransactions.value = skippedList
             for (skipped in skippedList) {
                 if (skipped.originalMessageId != 0L) {
@@ -115,13 +130,13 @@ class TransactionRepository(
                 }
             }
 
-            // 4. Scan manual expenses from manual_expenses.json
-            syncManualExpensesFromFile()
+            // 4. Scan manual expenses from persistent DB
+            syncManualExpensesFromDb()
 
-            // 5. Synchronize monitored banks configuration with monitored_banks.json
-            syncMonitoredBanksWithFile()
+            // 5. Synchronize monitored banks from persistent DB to internal Room
+            syncMonitoredBanksFromDb()
 
-            // 6. Scan SMS inbox with freshly reloaded templates
+            // 6. Scan SMS inbox with freshly loaded templates
             val monitored = bankSenderDao.getMonitoredSendersSync()
             if (monitored.isEmpty()) {
                 return@withContext SyncResult(0, 0, listOf("No monitored bank senders configured. Please enable banks in Settings."))
@@ -137,8 +152,8 @@ class TransactionRepository(
 
             var newlyImported = 0
             for (transaction in parsedTransactions) {
-                // Skip if user marked this transaction as skipped in the file
-                if (fileManager.isSkipped(transaction.messageId, transaction.sender, transaction.timestamp, transaction.rawBody)) {
+                // Skip if user marked this transaction as skipped
+                if (isSkippedInDb(transaction.messageId, transaction.sender, transaction.timestamp, transaction.rawBody)) {
                     continue
                 }
 
@@ -183,14 +198,13 @@ class TransactionRepository(
     }
 
     /**
-     * Synchronizes manual expenses from manual_expenses.json into Room.
-     * Reconciles any deleted manual expenses.
+     * Synchronizes manual expenses from persistent DB into internal Room.
      */
-    private suspend fun syncManualExpensesFromFile() {
-        val manualExpenses = fileManager.getManualExpenses()
+    private suspend fun syncManualExpensesFromDb() {
+        val manualExpenses = pManualDao.getAll().map { it.toDomain() }
         val currentFileIds = manualExpenses.map { it.id }.toSet()
 
-        // Remove any manual entries from Room that were deleted from the file
+        // Remove any manual entries from Room that were deleted from persistent DB
         val existingDbManualIds = transactionDao.getAllManualIds()
         for (dbId in existingDbManualIds) {
             if (!currentFileIds.contains(dbId)) {
@@ -198,7 +212,7 @@ class TransactionRepository(
             }
         }
 
-        // Upsert all manual expenses from the file
+        // Upsert all manual expenses from persistent DB
         for (expense in manualExpenses) {
             val transaction = expense.toTransaction()
             val existing = transactionDao.getByManualId(expense.id)
@@ -211,16 +225,41 @@ class TransactionRepository(
         }
     }
 
+    /**
+     * Checks if a transaction is skipped using the persistent DB.
+     */
+    private suspend fun isSkippedInDb(
+        messageId: Long,
+        sender: String,
+        timestamp: Long,
+        rawBody: String
+    ): Boolean {
+        val skippedList = pSkippedDao.getAll().map { it.toDomain() }
+        if (skippedList.isEmpty()) return false
+
+        return skippedList.any { skipped ->
+            (messageId != 0L && skipped.originalMessageId == messageId) ||
+            (rawBody.isNotBlank() && skipped.rawBody.isNotBlank() && skipped.sender == sender && skipped.rawBody == rawBody) ||
+            (skipped.sender == sender && Math.abs(skipped.timestamp - timestamp) < 60000 &&
+             rawBody.contains(skipped.amount.toInt().toString()))
+        }
+    }
+
     // ── Manual Expenses API ───────────────────────────────────────────────
 
     suspend fun addManualExpense(expense: ManualExpense) = withContext(Dispatchers.IO) {
-        fileManager.saveManualExpense(expense)
+        // Write to persistent DB
+        pManualDao.upsert(ManualExpenseEntity.fromDomain(expense))
+        // Mirror to JSON backup
+        exportManualExpensesToJson()
+        // Sync to internal Room for queries
         val transaction = expense.toTransaction()
         transactionDao.insert(TransactionEntity.fromDomain(transaction))
     }
 
     suspend fun updateManualExpense(expense: ManualExpense) = withContext(Dispatchers.IO) {
-        fileManager.saveManualExpense(expense)
+        pManualDao.upsert(ManualExpenseEntity.fromDomain(expense))
+        exportManualExpensesToJson()
         val existing = transactionDao.getByManualId(expense.id)
         val transaction = expense.toTransaction()
         if (existing != null) {
@@ -232,20 +271,22 @@ class TransactionRepository(
     }
 
     suspend fun deleteManualExpense(manualId: String) = withContext(Dispatchers.IO) {
-        fileManager.deleteManualExpense(manualId)
+        pManualDao.deleteById(manualId)
+        exportManualExpensesToJson()
         transactionDao.deleteByManualId(manualId)
     }
 
-    fun getManualExpenses(): List<ManualExpense> {
-        return fileManager.getManualExpenses()
+    suspend fun getManualExpenses(): List<ManualExpense> = withContext(Dispatchers.IO) {
+        pManualDao.getAll().map { it.toDomain() }
     }
 
     // ── Skipped Transactions API ──────────────────────────────────────────
 
     suspend fun skipTransaction(transaction: Transaction, reason: String = "User skipped") = withContext(Dispatchers.IO) {
         val skipped = SkippedTransaction.fromTransaction(transaction, reason)
-        fileManager.addSkippedTransaction(skipped)
-        _skippedTransactions.value = fileManager.getSkippedTransactions()
+        pSkippedDao.insert(SkippedTransactionEntity.fromDomain(skipped))
+        exportSkippedToJson()
+        _skippedTransactions.value = pSkippedDao.getAll().map { it.toDomain() }
 
         if (transaction.messageId != 0L) {
             transactionDao.deleteByMessageId(transaction.messageId)
@@ -254,38 +295,113 @@ class TransactionRepository(
     }
 
     suspend fun unskipTransaction(skipped: SkippedTransaction) = withContext(Dispatchers.IO) {
-        fileManager.removeSkippedTransaction(skipped)
-        _skippedTransactions.value = fileManager.getSkippedTransactions()
+        // Remove from persistent DB using matching criteria
+        if (skipped.originalMessageId != 0L) {
+            pSkippedDao.deleteByMessageId(skipped.originalMessageId)
+        }
+        if (skipped.rawBody.isNotBlank()) {
+            pSkippedDao.deleteBySenderAndBody(skipped.sender, skipped.rawBody)
+        }
+        pSkippedDao.deleteBySenderAmountTimestamp(skipped.sender, skipped.amount, skipped.timestamp)
+
+        exportSkippedToJson()
+        _skippedTransactions.value = pSkippedDao.getAll().map { it.toDomain() }
         // Re-sync inbox so this transaction is immediately restored to active log
         syncTransactionsFromSms()
     }
 
-    fun getSkippedTransactions(): List<SkippedTransaction> {
-        return fileManager.getSkippedTransactions()
+    suspend fun getSkippedTransactions(): List<SkippedTransaction> = withContext(Dispatchers.IO) {
+        pSkippedDao.getAll().map { it.toDomain() }
     }
 
     // ── Message Templates API ─────────────────────────────────────────────
 
     fun getMessageTemplates(): List<MessageTemplate> {
-        return fileManager.getMessageTemplates()
+        return _messageTemplates.value.ifEmpty { MessageTemplate.defaultTemplates }
+    }
+
+    suspend fun loadMessageTemplates(): List<MessageTemplate> = withContext(Dispatchers.IO) {
+        val templates = pTemplateDao.getAll().map { it.toDomain() }
+        if (templates.isEmpty()) {
+            // Seed defaults if empty
+            val defaults = MessageTemplate.defaultTemplates
+            pTemplateDao.upsertAll(defaults.map { MessageTemplateEntity.fromDomain(it) })
+            _messageTemplates.value = defaults
+            exportTemplatesToJson()
+            defaults
+        } else {
+            _messageTemplates.value = templates
+            templates
+        }
     }
 
     suspend fun saveMessageTemplate(template: MessageTemplate) = withContext(Dispatchers.IO) {
-        fileManager.saveMessageTemplate(template)
-        _messageTemplates.value = fileManager.getMessageTemplates()
+        pTemplateDao.upsert(MessageTemplateEntity.fromDomain(template))
+        exportTemplatesToJson()
+        _messageTemplates.value = pTemplateDao.getAll().map { it.toDomain() }
     }
 
     suspend fun deleteMessageTemplate(id: String) = withContext(Dispatchers.IO) {
-        fileManager.deleteMessageTemplate(id)
-        _messageTemplates.value = fileManager.getMessageTemplates()
+        pTemplateDao.deleteById(id)
+        exportTemplatesToJson()
+        _messageTemplates.value = pTemplateDao.getAll().map { it.toDomain() }
     }
 
     suspend fun toggleMessageTemplate(id: String, isEnabled: Boolean) = withContext(Dispatchers.IO) {
-        fileManager.toggleTemplate(id, isEnabled)
-        _messageTemplates.value = fileManager.getMessageTemplates()
+        pTemplateDao.toggleEnabled(id, isEnabled)
+        exportTemplatesToJson()
+        _messageTemplates.value = pTemplateDao.getAll().map { it.toDomain() }
     }
 
-    // ── Queries & Stats ───────────────────────────────────────────────────
+    // ── Monitored Banks API ───────────────────────────────────────────────
+
+    /**
+     * Synchronizes monitored banks from persistent DB to internal Room bank_senders table.
+     */
+    private suspend fun syncMonitoredBanksFromDb() {
+        try {
+            val persistentBanks = pBankDao.getAll().map { it.toDomain() }
+            val persistentSenderIds = persistentBanks.map { it.senderId.lowercase() }.toSet()
+
+            // Remove senders from Room that are no longer in persistent DB
+            val allDbSenders = bankSenderDao.getAllSendersSync()
+            for (dbSender in allDbSenders) {
+                if (!persistentSenderIds.contains(dbSender.senderId.lowercase())) {
+                    bankSenderDao.delete(dbSender)
+                }
+            }
+
+            // Upsert all senders from persistent DB into internal Room
+            for (bank in persistentBanks) {
+                val existing = bankSenderDao.getBySenderId(bank.senderId)
+                if (existing == null) {
+                    bankSenderDao.insert(BankSenderEntity.fromDomain(bank))
+                } else {
+                    bankSenderDao.update(
+                        existing.copy(
+                            displayName = bank.displayName,
+                            isMonitored = bank.isMonitored,
+                            customRegex = bank.customRegex
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            System.err.println("Error syncing monitored banks from DB: ${e.message}")
+        }
+    }
+
+    suspend fun getMonitoredBanks(): List<BankSender> = withContext(Dispatchers.IO) {
+        val banks = pBankDao.getAll().map { it.toDomain() }
+        if (banks.isEmpty()) {
+            val defaults = BankSender.defaultSenders
+            pBankDao.upsertAll(defaults.map { MonitoredBankEntity.fromDomain(it) })
+            exportBanksToJson()
+            defaults
+        } else {
+            banks
+        }
+    }
 
     /**
      * Discovers all sender addresses in SMS inbox so user can pick which ones are their banks.
@@ -386,56 +502,16 @@ class TransactionRepository(
         }
     }
 
-    suspend fun syncMonitoredBanksWithFile() = withContext(Dispatchers.IO) {
-        try {
-            val fileBanks = fileManager.getMonitoredBanks()
-            val fileSenderIds = fileBanks.map { it.senderId.lowercase() }.toSet()
-
-            // Remove senders from Room that are no longer in monitored_banks.json
-            val allDbSenders = bankSenderDao.getAllSendersSync()
-            for (dbSender in allDbSenders) {
-                if (!fileSenderIds.contains(dbSender.senderId.lowercase())) {
-                    bankSenderDao.delete(dbSender)
-                }
-            }
-
-            // Upsert all senders from monitored_banks.json
-            for (bank in fileBanks) {
-                val existing = bankSenderDao.getBySenderId(bank.senderId)
-                if (existing == null) {
-                    bankSenderDao.insert(BankSenderEntity.fromDomain(bank))
-                } else {
-                    bankSenderDao.update(
-                        existing.copy(
-                            displayName = bank.displayName,
-                            isMonitored = bank.isMonitored,
-                            customRegex = bank.customRegex
-                        )
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            System.err.println("Error syncing monitored banks: ${e.message}")
-        }
-    }
-
-    suspend fun refreshFromFiles() = withContext(Dispatchers.IO) {
-        val templates = fileManager.getMessageTemplates()
-        _messageTemplates.value = templates
-        val skipped = fileManager.getSkippedTransactions()
-        _skippedTransactions.value = skipped
-        syncManualExpensesFromFile()
-        syncMonitoredBanksWithFile()
-    }
-
     suspend fun setSenderMonitored(senderId: String, isMonitored: Boolean) = withContext(Dispatchers.IO) {
         bankSenderDao.setMonitored(senderId, isMonitored)
-        fileManager.toggleMonitoredBank(senderId, isMonitored)
+        pBankDao.toggleMonitored(senderId, isMonitored)
+        exportBanksToJson()
     }
 
     suspend fun addCustomSender(sender: BankSender) = withContext(Dispatchers.IO) {
         bankSenderDao.insert(BankSenderEntity.fromDomain(sender))
-        fileManager.saveMonitoredBank(sender)
+        pBankDao.upsert(MonitoredBankEntity.fromDomain(sender))
+        exportBanksToJson()
     }
 
     suspend fun updateSender(oldSenderId: String, updated: BankSender) = withContext(Dispatchers.IO) {
@@ -445,10 +521,12 @@ class TransactionRepository(
                 bankSenderDao.delete(oldEntity)
             }
             bankSenderDao.insert(BankSenderEntity.fromDomain(updated))
+            pBankDao.deleteBySenderId(oldSenderId)
         } else {
             bankSenderDao.update(BankSenderEntity.fromDomain(updated))
         }
-        fileManager.updateMonitoredBank(oldSenderId, updated)
+        pBankDao.upsert(MonitoredBankEntity.fromDomain(updated))
+        exportBanksToJson()
     }
 
     suspend fun deleteSender(sender: BankSender) = withContext(Dispatchers.IO) {
@@ -456,19 +534,56 @@ class TransactionRepository(
         if (entity != null) {
             bankSenderDao.delete(entity)
         }
-        fileManager.deleteMonitoredBank(sender.senderId)
+        pBankDao.deleteBySenderId(sender.senderId)
+        exportBanksToJson()
     }
 
     fun getStorageDirectoryPath(): String = fileManager.getStorageDirectoryPath()
 
     fun isPublicStorageActive(): Boolean = fileManager.isPublicStorageActive()
 
+    fun getPersistentDbPath(): String {
+        return try {
+            persistentDb.openHelper.readableDatabase.path ?: "unknown"
+        } catch (_: Exception) {
+            "unknown"
+        }
+    }
+
     suspend fun clearAllPersistenceFiles() = withContext(Dispatchers.IO) {
+        // Clear persistent DB tables
+        pManualDao.deleteAll()
+        pSkippedDao.deleteAll()
+        pTemplateDao.deleteAll()
+        pBankDao.deleteAll()
+
+        // Clear JSON backup files
         fileManager.clearAllFiles()
+
         _skippedTransactions.value = emptyList()
-        _messageTemplates.value = fileManager.getMessageTemplates()
-        // Re-sync monitored banks to fresh defaults
-        syncMonitoredBanksWithFile()
+
+        // Re-seed defaults
+        val defaultTemplates = MessageTemplate.defaultTemplates
+        pTemplateDao.upsertAll(defaultTemplates.map { MessageTemplateEntity.fromDomain(it) })
+        _messageTemplates.value = defaultTemplates
+
+        val defaultBanks = BankSender.defaultSenders
+        pBankDao.upsertAll(defaultBanks.map { MonitoredBankEntity.fromDomain(it) })
+
+        // Sync defaults to internal Room
+        syncMonitoredBanksFromDb()
+    }
+
+    /**
+     * Refreshes cached state from persistent DB. Called on tab switches, etc.
+     */
+    suspend fun refreshFromFiles() = withContext(Dispatchers.IO) {
+        val templates = pTemplateDao.getAll().map { it.toDomain() }
+        _messageTemplates.value = templates.ifEmpty { MessageTemplate.defaultTemplates }
+        val skipped = pSkippedDao.getAll().map { it.toDomain() }
+        _skippedTransactions.value = skipped
+        syncManualExpensesFromDb()
+        syncMonitoredBanksFromDb()
     }
 
     suspend fun updateTransactionCategory(transactionId: Long, newCategory: String) {
@@ -482,6 +597,44 @@ class TransactionRepository(
 
     suspend fun deleteAllTransactions() {
         transactionDao.deleteAll()
+    }
+
+    // ── JSON Backup Export Methods ─────────────────────────────────────────
+
+    private suspend fun exportManualExpensesToJson() {
+        try {
+            val expenses = pManualDao.getAll().map { it.toDomain() }
+            val jsonArray = org.json.JSONArray()
+            expenses.forEach { jsonArray.put(it.toJsonObject()) }
+            fileManager.writeJsonBackup("manual_expenses.json", jsonArray.toString(2))
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun exportSkippedToJson() {
+        try {
+            val skipped = pSkippedDao.getAll().map { it.toDomain() }
+            val jsonArray = org.json.JSONArray()
+            skipped.forEach { jsonArray.put(it.toJsonObject()) }
+            fileManager.writeJsonBackup("skipped_transactions.json", jsonArray.toString(2))
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun exportTemplatesToJson() {
+        try {
+            val templates = pTemplateDao.getAll().map { it.toDomain() }
+            val jsonArray = org.json.JSONArray()
+            templates.forEach { jsonArray.put(it.toJsonObject()) }
+            fileManager.writeJsonBackup("message_templates.json", jsonArray.toString(2))
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun exportBanksToJson() {
+        try {
+            val banks = pBankDao.getAll().map { it.toDomain() }
+            val jsonArray = org.json.JSONArray()
+            banks.forEach { jsonArray.put(it.toJsonObject()) }
+            fileManager.writeJsonBackup("monitored_banks.json", jsonArray.toString(2))
+        } catch (_: Exception) {}
     }
 
     private fun formatYearMonth(ym: String): String {

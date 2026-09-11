@@ -26,11 +26,14 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
 
         val repository = (context.applicationContext as? BankSmsApp)?.repository ?: run {
             val db = AppDatabase.getInstance(context)
+            val fm = ExpenseFileManager(context)
+            val pDb = com.banksms.expensetracker.data.local.PersistentDatabase.getInstance(context, fm)
             TransactionRepository(
                 transactionDao = db.transactionDao(),
                 bankSenderDao = db.bankSenderDao(),
                 smsReader = SmsReader(context),
-                fileManager = ExpenseFileManager(context)
+                fileManager = fm,
+                persistentDb = pDb
             )
         }
 
