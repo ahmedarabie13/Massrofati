@@ -1,6 +1,8 @@
 package com.banksms.expensetracker
 
 import android.app.Application
+import com.banksms.expensetracker.data.auth.AuthRepository
+import com.banksms.expensetracker.data.auth.BiometricUnlock
 import com.banksms.expensetracker.data.file.ExpenseFileManager
 import com.banksms.expensetracker.data.llm.ChatEngine
 import com.banksms.expensetracker.data.llm.FakeChatEngine
@@ -31,6 +33,14 @@ class BankSmsApp : Application() {
     lateinit var repository: TransactionRepository
         private set
 
+    /** Firebase Auth wrapper (session survives process death via the SDK). */
+    lateinit var authRepository: AuthRepository
+        private set
+
+    /** App-level biometric gate over the persisted Firebase session. */
+    lateinit var biometricUnlock: BiometricUnlock
+        private set
+
     /**
      * Single shared engine for chat AND background AI parsing (one 3.7 GB
      * model load, inference serialized inside LiteRtLmChatEngine).
@@ -41,6 +51,8 @@ class BankSmsApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        authRepository = AuthRepository()
+        biometricUnlock = BiometricUnlock(this)
         database = AppDatabase.getInstance(this)
         aiDatabase = AiAppDatabase.getInstance(this)
         val smsReader = SmsReader(this)

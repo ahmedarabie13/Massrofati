@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "519138252053",
+    "project_id": "massrofati",
+    "storage_bucket": "massrofati.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:519138252053:android:1dcceb2ac67e2e1f51451c",
+        "android_client_info": {
+          "package_name": "com.banksms.expensetracker"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "519138252053-nqnj25aph6pusebfe4ahecep1no6d1pf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBcSpPwJi4q0lduvgqes9C15_AiQo0qqBw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "519138252053-nqnj25aph6pusebfe4ahecep1no6d1pf.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
