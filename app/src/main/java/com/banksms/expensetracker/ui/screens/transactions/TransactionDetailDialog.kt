@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +29,7 @@ import androidx.compose.ui.window.Dialog
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.model.TransactionType
 import com.banksms.expensetracker.ui.components.BankBadge
+import com.banksms.expensetracker.ui.theme.DribbblePurple
 import com.banksms.expensetracker.ui.theme.ExpenseRed
 import com.banksms.expensetracker.ui.theme.IncomeGreen
 import com.banksms.expensetracker.util.CurrencyFormatter
@@ -40,6 +42,11 @@ fun TransactionDetailDialog(
     onEditManual: ((Transaction) -> Unit)? = null,
     onDeleteManual: ((String) -> Unit)? = null,
     onSkipTransaction: ((Transaction) -> Unit)? = null,
+    // AI single-message rescan (AI mode, SMS rows only):
+    showRescan: Boolean = false,
+    rescanInFlight: Boolean = false,
+    rescanMessage: String? = null,
+    onRescan: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -282,8 +289,60 @@ fun TransactionDetailDialog(
                             }
                         }
                     }
+
+                    // Manual entries can be skipped exactly like SMS ones: hidden
+                    // from the log but restorable from the Skipped tab.
+                    if (onSkipTransaction != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { showSkipConfirmation = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ExpenseRed),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Skip / Remove from Log")
+                        }
+                    }
                 } else if (onSkipTransaction != null) {
-                    // SMS transaction: Allow skipping from log
+                    // SMS transaction: optional AI re-scan, then skipping from log
+                    if (!transaction.isManual && showRescan && onRescan != null) {
+                        OutlinedButton(
+                            onClick = onRescan,
+                            enabled = !rescanInFlight,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = DribbblePurple),
+                            border = BorderStroke(
+                                1.dp,
+                                DribbblePurple.copy(alpha = if (rescanInFlight) 0.3f else 0.6f)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (rescanInFlight) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = DribbblePurple
+                                )
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (rescanInFlight) "Re-scanning…" else "Re-scan with AI")
+                        }
+                        rescanMessage?.let { msg ->
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     OutlinedButton(
                         onClick = { showSkipConfirmation = true },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = ExpenseRed),

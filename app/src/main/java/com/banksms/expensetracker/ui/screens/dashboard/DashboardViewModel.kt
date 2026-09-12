@@ -3,10 +3,12 @@ package com.banksms.expensetracker.ui.screens.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.banksms.expensetracker.data.model.ParseMode
 import com.banksms.expensetracker.data.model.SummaryReport
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.repository.SyncResult
 import com.banksms.expensetracker.data.repository.TransactionRepository
+import com.banksms.expensetracker.data.repository.TransactionRepository.RescanResult
 import com.banksms.expensetracker.util.DateRange
 import com.banksms.expensetracker.util.DateRangePreset
 import com.banksms.expensetracker.util.DateUtils
@@ -20,7 +22,10 @@ data class DashboardUiState(
     val summary: SummaryReport = SummaryReport(),
     val recentTransactions: List<Transaction> = emptyList(),
     val isSyncing: Boolean = false,
-    val syncMessage: String? = null
+    val syncMessage: String? = null,
+    val isAiMode: Boolean = false,
+    val rescanInFlightId: Long? = null,
+    val rescanMessage: String? = null
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -31,6 +36,8 @@ class DashboardViewModel(
     private val _dateRange = MutableStateFlow(DateUtils.getDateRange(DateRangePreset.THIS_MONTH))
     private val _isSyncing = MutableStateFlow(false)
     private val _syncMessage = MutableStateFlow<String?>(null)
+    private val _rescanInFlightId = MutableStateFlow<Long?>(null)
+    private val _rescanMessage = MutableStateFlow<String?>(null)
 
     private val _summary = _dateRange.flatMapLatest { range ->
         repository.getSummaryReport(range.startTime, range.endTime)
@@ -48,14 +55,29 @@ class DashboardViewModel(
         _summary,
         _recentTransactions,
         _isSyncing,
-        _syncMessage
-    ) { range, summary, recents, syncing, msg ->
+        _syncMessage,
+        _rescanInFlightId,
+        _rescanMessage,
+        repository.parseMode
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        val range = args[0] as DateRange
+        val summary = args[1] as SummaryReport
+        val recents = args[2] as List<Transaction>
+        val syncing = args[3] as Boolean
+        val msg = args[4] as String?
+        val rescanId = args[5] as Long?
+        val rescanMsg = args[6] as String?
+        val mode = args[7] as ParseMode
         DashboardUiState(
             dateRange = range,
             summary = summary,
             recentTransactions = recents,
             isSyncing = syncing,
-            syncMessage = msg
+            syncMessage = msg,
+            isAiMode = mode == ParseMode.AI,
+            rescanInFlightId = rescanId,
+            rescanMessage = rescanMsg
         )
     }.stateIn(
         scope = viewModelScope,
@@ -91,6 +113,31 @@ class DashboardViewModel(
     /** Stops a running sync (manual or AI): in-flight work finishes, partial results kept. */
     fun stopSync() {
         repository.cancelSync()
+    }
+
+    /** AI-only: re-send one stored SMS to the model and overwrite the row. */
+    fun rescanTransaction(transaction: Transaction) {
+        if (_rescanInFlightId.value != null) return
+        viewModelScope.launch {
+            _rescanInFlightId.value = transaction.id
+            _rescanMessage.value = null
+            try {
+                _rescanMessage.value = when (val result = repository.rescanTransaction(transaction.id)) {
+                    is RescanResult.Updated -> "Re-scanned — details updated."
+                    RescanResult.NotTransaction ->
+                        "The model doesn't see a transaction here — entry kept."
+                    is RescanResult.Failed -> result.reason
+                }
+            } catch (e: CancellationException) {
+                _rescanMessage.value = "Re-scan stopped."
+            } finally {
+                _rescanInFlightId.value = null
+            }
+        }
+    }
+
+    fun clearRescanMessage() {
+        _rescanMessage.value = null
     }
 
     fun skipTransaction(transaction: Transaction) {

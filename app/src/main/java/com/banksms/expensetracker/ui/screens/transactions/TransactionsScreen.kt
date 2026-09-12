@@ -313,10 +313,19 @@ fun TransactionsScreen(
             )
         }
 
-        selectedTransactionForDetail?.let { tx ->
+        selectedTransactionForDetail?.let { selected ->
+            // Refresh from state so a re-scan immediately shows the new parse.
+            val tx = state.transactions.firstOrNull { it.id == selected.id } ?: selected
             TransactionDetailDialog(
                 transaction = tx,
-                onDismiss = { selectedTransactionForDetail = null },
+                onDismiss = {
+                    selectedTransactionForDetail = null
+                    viewModel.clearRescanMessage()
+                },
+                showRescan = state.isAiMode,
+                rescanInFlight = state.rescanInFlightId == tx.id,
+                rescanMessage = state.rescanMessage,
+                onRescan = { viewModel.rescanTransaction(tx) },
                 onEditManual = { manualTx ->
                     editingManualExpense = ManualExpense(
                         id = manualTx.manualId ?: "",

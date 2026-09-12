@@ -4,13 +4,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.banksms.expensetracker.data.file.ManualExpense
+import com.banksms.expensetracker.data.file.SkippedTransaction
 import com.banksms.expensetracker.data.model.BankSender
+import com.banksms.expensetracker.data.model.ParseMode
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.model.TransactionType
 import com.banksms.expensetracker.data.repository.TransactionRepository
+import com.banksms.expensetracker.data.repository.TransactionRepository.RescanResult
 import com.banksms.expensetracker.util.DateRange
 import com.banksms.expensetracker.util.DateRangePreset
 import com.banksms.expensetracker.util.DateUtils
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -25,7 +29,10 @@ data class TransactionsUiState(
     val transactions: List<Transaction> = emptyList(),
     val availableBanks: List<String> = emptyList(),
     val skippedCount: Int = 0,
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val isAiMode: Boolean = false,
+    val rescanInFlightId: Long? = null,
+    val rescanMessage: String? = null
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -39,6 +46,8 @@ class TransactionsViewModel(
     private val _selectedCategory = MutableStateFlow<String?>(null)
     private val _searchQuery = MutableStateFlow("")
     private val _manualOnly = MutableStateFlow(false)
+    private val _rescanInFlightId = MutableStateFlow<Long?>(null)
+    private val _rescanMessage = MutableStateFlow<String?>(null)
 
     private val _senders = repository.getSendersWithStats()
 
@@ -94,8 +103,19 @@ class TransactionsViewModel(
         _filterState,
         _transactions,
         _senders,
-        repository.skippedTransactions
-    ) { filterParams, transactions, senders, skipped ->
+        repository.skippedTransactions,
+        _rescanInFlightId,
+        _rescanMessage,
+        repository.parseMode
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        val filterParams = args[0] as FilterParams
+        val transactions = args[1] as List<Transaction>
+        val senders = args[2] as List<BankSender>
+        val skipped = args[3] as List<SkippedTransaction>
+        val rescanId = args[4] as Long?
+        val rescanMsg = args[5] as String?
+        val mode = args[6] as ParseMode
         TransactionsUiState(
             dateRange = filterParams.range,
             selectedType = filterParams.type,
@@ -105,7 +125,10 @@ class TransactionsViewModel(
             manualOnly = filterParams.manualOnly,
             transactions = transactions,
             availableBanks = senders.map { it.senderId },
-            skippedCount = skipped.size
+            skippedCount = skipped.size,
+            isAiMode = mode == ParseMode.AI,
+            rescanInFlightId = rescanId,
+            rescanMessage = rescanMsg
         )
     }.stateIn(
         scope = viewModelScope,
@@ -161,6 +184,31 @@ class TransactionsViewModel(
         viewModelScope.launch {
             repository.deleteTransaction(id)
         }
+    }
+
+    /** AI-only: re-send one stored SMS to the model and overwrite the row. */
+    fun rescanTransaction(transaction: Transaction) {
+        if (_rescanInFlightId.value != null) return
+        viewModelScope.launch {
+            _rescanInFlightId.value = transaction.id
+            _rescanMessage.value = null
+            try {
+                _rescanMessage.value = when (val result = repository.rescanTransaction(transaction.id)) {
+                    is RescanResult.Updated -> "Re-scanned — details updated."
+                    RescanResult.NotTransaction ->
+                        "The model doesn't see a transaction here — entry kept."
+                    is RescanResult.Failed -> result.reason
+                }
+            } catch (e: CancellationException) {
+                _rescanMessage.value = "Re-scan stopped."
+            } finally {
+                _rescanInFlightId.value = null
+            }
+        }
+    }
+
+    fun clearRescanMessage() {
+        _rescanMessage.value = null
     }
 
     private data class FilterParams(

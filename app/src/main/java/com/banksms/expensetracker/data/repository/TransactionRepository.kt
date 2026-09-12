@@ -113,6 +113,68 @@ class TransactionRepository(
         _aiScanProgress.value = null
     }
 
+    // ── Single-message AI rescan ──────────────────────────────────────────
+
+    sealed interface RescanResult {
+        data class Updated(val transaction: Transaction) : RescanResult
+        data object NotTransaction : RescanResult
+        data class Failed(val reason: String) : RescanResult
+    }
+
+    /**
+     * Re-sends ONE stored message to the model and overwrites the row with
+     * the fresh parse. AI mode only, SMS rows only. This is an explicit user
+     * action, so it always hits the model (bypasses verdict + money-hint
+     * gates); the new verdict is recorded for future bulk scans.
+     */
+    suspend fun rescanTransaction(transactionId: Long): RescanResult =
+        withContext(Dispatchers.IO) {
+            if (_parseMode.value != ParseMode.AI) {
+                return@withContext RescanResult.Failed("Switch to AI parsing mode to re-scan.")
+            }
+            val existing = aiTransactionDao.getById(transactionId)
+                ?: return@withContext RescanResult.Failed("Transaction not found.")
+            if (existing.isManual) {
+                return@withContext RescanResult.Failed("Manual entries have no SMS to re-scan.")
+            }
+            if (existing.rawBody.isBlank()) {
+                return@withContext RescanResult.Failed("No original message stored for this transaction.")
+            }
+            val engine = engineProvider?.invoke()
+            if (engine == null || engine.isDemo) {
+                return@withContext RescanResult.Failed(
+                    "AI parsing needs the on-device model. Download it from the Assistant tab first."
+                )
+            }
+            try {
+                val parsed = AiSmsParser.parseSingle(
+                    engine,
+                    RawSms(existing.messageId, existing.sender, existing.rawBody, existing.timestamp)
+                ) ?: run {
+                    aiScannedDao.upsert(
+                        AiScannedEntity(
+                            existing.messageId, existing.sender, existing.timestamp,
+                            existing.rawBody, false
+                        )
+                    )
+                    return@withContext RescanResult.NotTransaction
+                }
+                val updated = parsed.copy(id = existing.id, messageId = existing.messageId)
+                aiTransactionDao.update(AiTransactionEntity.fromDomain(updated))
+                aiScannedDao.upsert(
+                    AiScannedEntity(
+                        existing.messageId, existing.sender, existing.timestamp,
+                        existing.rawBody, true
+                    )
+                )
+                RescanResult.Updated(updated)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                RescanResult.Failed(e.message ?: "Re-scan failed.")
+            }
+        }
+
     // Persistent DB DAOs
     private val pManualDao get() = persistentDb.manualExpenseDao()
     private val pSkippedDao get() = persistentDb.skippedTransactionDao()
@@ -620,6 +682,18 @@ class TransactionRepository(
             // Stop takes effect between rows (also aborts stale refreshes).
             currentCoroutineContext().ensureActive()
             val transaction = expense.toTransaction()
+            // Skipped manuals stay skipped: the ManualExpense record is kept
+            // (so unskip restores it) but nothing is mirrored to the query DBs.
+            // Matching works via the deterministic negative messageId.
+            if (isSkippedInDb(
+                    transaction.messageId, transaction.sender,
+                    transaction.timestamp, transaction.rawBody
+                )
+            ) {
+                transactionDao.deleteByManualId(expense.id)
+                aiTransactionDao.deleteByManualId(expense.id)
+                continue
+            }
             val existing = transactionDao.getByManualId(expense.id)
             if (existing != null) {
                 val updated = TransactionEntity.fromDomain(transaction).copy(id = existing.id)
