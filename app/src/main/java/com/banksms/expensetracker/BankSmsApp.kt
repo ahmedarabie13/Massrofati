@@ -32,7 +32,7 @@ class BankSmsApp : Application() {
         private set
 
     /**
-     * Single shared engine for chat AND background AI parsing (one 2.5 GB
+     * Single shared engine for chat AND background AI parsing (one 3.7 GB
      * model load, inference serialized inside LiteRtLmChatEngine).
      */
     @Volatile

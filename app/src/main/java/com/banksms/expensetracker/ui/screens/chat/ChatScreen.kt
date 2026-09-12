@@ -429,7 +429,7 @@ private fun ModelSetupCard(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Gemma 4 E2B (~2.5 GB, one-time). AI Edge Gallery keeps its copy " +
+                text = "Gemma 4 E4B (~3.7 GB, one-time). AI Edge Gallery keeps its copy " +
                     "in private storage, so fetch it here — download directly or " +
                     "import a ${LlmModelFiles.MODEL_FILE_NAME} file you already have.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),

@@ -54,14 +54,14 @@ private fun Message.textDelta(): String =
 
 /** Where the `.litertlm` model lives once the user downloads it. */
 object LlmModelFiles {
-    const val MODEL_FILE_NAME = "gemma-4-E2B-it.litertlm"
+    const val MODEL_FILE_NAME = "gemma-4-E4B-it.litertlm"
 
     /** HuggingFace repo hosting the file below. */
-    const val MODEL_HF_REPO = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm"
+    const val MODEL_HF_REPO = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm"
 
-    /** Direct download URL (~2.5 GB). Gated repos may reject anonymous download. */
+    /** Direct download URL (~3.7 GB). Gated repos may reject anonymous download. */
     const val MODEL_DOWNLOAD_URL =
-        "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm"
+        "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm"
 
     /**
      * App-specific external storage: readable by DownloadManager (a system

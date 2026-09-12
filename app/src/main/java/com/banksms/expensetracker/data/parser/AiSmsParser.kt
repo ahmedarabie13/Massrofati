@@ -25,11 +25,12 @@ object AiSmsParser {
 
     /**
      * Concurrent batches during a rescan — each batch gets its own private
-     * engine (single owner, safe to abandon on stop). 3 balances speed
-     * against per-engine runtime/KV RAM on a phone; more slots help only
-     * while the CPU scheduler and memory bandwidth have headroom.
+     * engine (single owner, safe to abandon on stop). 2, not 3: Google
+     * measures ~3.3 GB peak CPU RAM per E4B engine on an S26 Ultra, so 3
+     * batch engines plus the resident chat engine would exceed a 12 GB
+     * phone. Raise only with headroom to spare (and watch for LMK kills).
      */
-    const val PARALLEL_ENGINES = 3
+    const val PARALLEL_ENGINES = 2
 
     /**
      * Cheap prefilter: only texts mentioning a currency can be transactions.

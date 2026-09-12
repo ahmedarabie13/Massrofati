@@ -156,7 +156,7 @@ class ChatViewModel(
         }
     }
 
-    /** Starts the one-time ~2.5 GB model download. */
+    /** Starts the one-time ~3.7 GB model download. */
     fun startDownload() {
         if (_fetchState.value is ModelFetchState.Downloading ||
             _fetchState.value is ModelFetchState.Importing
