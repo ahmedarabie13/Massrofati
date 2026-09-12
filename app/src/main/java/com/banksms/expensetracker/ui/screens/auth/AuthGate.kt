@@ -79,8 +79,36 @@ fun AuthGate(modifier: Modifier = Modifier) {
     }
     lastUid = current.uid
 
-    // Fresh credential login → offer biometric unlock once.
-    if (freshUid == current.uid && biometricsOfferedFor != current.uid) {
+    val biometricOptIn = app.biometricUnlock.isEnabledFor(current.uid)
+    // Biometric hardware state can report unavailable for a moment on cold
+    // start (sensor service still binding). When the user opted in, poll
+    // briefly instead of deciding once and skipping the lock forever.
+    // Fail-open after ~3s so a truly sensor-less device never hangs here.
+    var biometricsReady by remember(current.uid) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(current.uid) {
+        if (!app.biometricUnlock.isEnabledFor(current.uid)) {
+            biometricsReady = false
+            return@LaunchedEffect
+        }
+        biometricsReady = null
+        repeat(12) {
+            val can = try {
+                app.biometricUnlock.canAuthenticate(context)
+            } catch (_: Exception) {
+                false
+            }
+            if (can) {
+                biometricsReady = true
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.delay(250)
+        }
+        biometricsReady = false
+    }
+
+    // Fresh credential login → offer biometric unlock once (never re-offer
+    // when already enabled).
+    if (freshUid == current.uid && biometricsOfferedFor != current.uid && !biometricOptIn) {
         EnableBiometricsScreen(
             uid = current.uid,
             onDone = {
@@ -94,10 +122,13 @@ fun AuthGate(modifier: Modifier = Modifier) {
     }
 
     // Returning session with biometric opt-in → lock until verified.
-    if (!sessionUnlocked &&
-        app.biometricUnlock.isEnabledFor(current.uid) &&
-        app.biometricUnlock.canAuthenticate(context)
-    ) {
+    // While the sensor state is still being probed (null), hold the splash
+    // so the dashboard never flashes before the lock.
+    if (biometricOptIn && biometricsReady == null) {
+        Splash(modifier)
+        return
+    }
+    if (!sessionUnlocked && biometricOptIn && biometricsReady == true) {
         LockScreen(
             displayName = current.displayName ?: "",
             onUnlocked = { sessionUnlocked = true },
