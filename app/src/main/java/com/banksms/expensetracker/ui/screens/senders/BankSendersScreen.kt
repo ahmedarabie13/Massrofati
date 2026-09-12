@@ -237,10 +237,6 @@ fun BankSendersScreen(
                     }
 
                     item {
-                        AccountCard()
-                    }
-
-                    item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(18.dp),
@@ -1165,100 +1161,6 @@ private fun ClearFilesConfirmDialog(
             }
         }
     )
-}
-
-@Composable
-private fun AccountCard() {
-    val context = LocalContext.current
-    val app = context.applicationContext as com.banksms.expensetracker.BankSmsApp
-    val user = app.authRepository.currentUser
-    var biometricOn by remember {
-        mutableStateOf(user?.let { app.biometricUnlock.isEnabledFor(it.uid) } ?: false)
-    }
-    val canUseBiometrics = remember { app.biometricUnlock.canAuthenticate(context) }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = CardDefaults.outlinedCardBorder(enabled = true),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.AccountCircle,
-                    contentDescription = null,
-                    tint = DribbblePurple,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Account",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = if (!user?.displayName.isNullOrBlank()) user?.displayName ?: ""
-                else user?.email ?: "Signed in",
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            if (!user?.displayName.isNullOrBlank()) {
-                Text(
-                    text = user?.email ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (canUseBiometrics && user != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Fingerprint,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Fingerprint unlock",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Switch(
-                        checked = biometricOn,
-                        onCheckedChange = { checked ->
-                            app.biometricUnlock.setEnabled(user.uid, checked)
-                            biometricOn = checked
-                        }
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = { app.authRepository.signOut() },
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Logout,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Sign out")
-            }
-        }
-    }
 }
 
 @Composable

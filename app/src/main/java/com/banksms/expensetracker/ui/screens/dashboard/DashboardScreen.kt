@@ -45,6 +45,7 @@ fun DashboardScreen(
     onNavigateToTransactions: () -> Unit,
     onNavigateToReports: () -> Unit = {},
     onNavigateToChat: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -86,6 +87,7 @@ fun DashboardScreen(
                     // Tapping the spinner while syncing stops the sync.
                     onSyncClick = { if (state.isSyncing) viewModel.stopSync() else viewModel.syncSms() },
                     onChatClick = onNavigateToChat,
+                    onProfileClick = onNavigateToProfile,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)
                 )
             }
@@ -415,6 +417,7 @@ private fun BalanceHeaderCard(
     onPeriodClick: () -> Unit,
     onSyncClick: () -> Unit,
     onChatClick: () -> Unit,
+    onProfileClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -456,19 +459,20 @@ private fun BalanceHeaderCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.25f)),
-                    contentAlignment = Alignment.Center
+                Surface(
+                    onClick = onProfileClick,
+                    shape = CircleShape,
+                    color = Color.White.copy(alpha = 0.25f),
+                    modifier = Modifier.size(44.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "Profile",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = "Profile",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
 
                 MonthPill(

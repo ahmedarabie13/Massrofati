@@ -6,9 +6,11 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.auth.FirebaseUser
@@ -92,10 +94,66 @@ class AuthRepository(
         auth.signOut()
     }
 
+    /** True for password accounts (Google-only accounts can't change a password). */
+    fun hasPasswordProvider(): Boolean =
+        currentUser?.providerData?.any { it.providerId == EmailAuthProvider.PROVIDER_ID } == true
+
+    suspend fun updateDisplayName(name: String): Result<Unit> {
+        val user = currentUser ?: return Result.failure(Exception("You're not signed in."))
+        return runCatching {
+            user.updateProfile(
+                UserProfileChangeRequest.Builder().setDisplayName(name.trim()).build()
+            ).await()
+            // Refresh the cached user so new name shows immediately.
+            auth.currentUser?.reload()?.await()
+            Unit
+        }.mapFailure(::friendlyMessage)
+    }
+
+    /**
+     * Password change for email accounts. Re-authenticates with the current
+     * password first; surfaces a clear message when the session is too old
+     * (user must log in again).
+     */
+    suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> {
+        val user = currentUser ?: return Result.failure(Exception("You're not signed in."))
+        val email = user.email
+            ?: return Result.failure(Exception("This account has no email to verify."))
+        return runCatching {
+            val credential = EmailAuthProvider.getCredential(email, currentPassword)
+            user.reauthenticate(credential).await()
+            user.updatePassword(newPassword).await()
+            Unit
+        }.mapFailure(::friendlyMessage)
+    }
+
+    suspend fun sendPasswordReset(): Result<Unit> {
+        val email = currentUser?.email
+            ?: return Result.failure(Exception("This account has no email address."))
+        return runCatching {
+            auth.sendPasswordResetEmail(email).await()
+            Unit
+        }.mapFailure(::friendlyMessage)
+    }
+
+    /**
+     * Deletes the Firebase account. Callers should wipe the user's cloud
+     * data first (rules forbid touching it once the account is gone).
+     */
+    suspend fun deleteAccount(): Result<Unit> {
+        val user = currentUser ?: return Result.failure(Exception("You're not signed in."))
+        return runCatching {
+            user.delete().await()
+            Unit
+        }.mapFailure(::friendlyMessage)
+    }
+
     private fun friendlyMessage(e: Throwable): String = when (e) {
         is FirebaseAuthWeakPasswordException -> "Password is too weak — use at least 6 characters."
         is FirebaseAuthUserCollisionException -> "An account with this email already exists. Try logging in."
         is FirebaseAuthInvalidUserException -> "No account found for this email."
+        is FirebaseAuthRecentLoginRequiredException ->
+            "For safety, log out and log back in, then try again."
         is FirebaseAuthInvalidCredentialsException ->
             if (e.errorCode == "ERROR_WRONG_PASSWORD") "Wrong password. Try again."
             else "That email address doesn't look valid."

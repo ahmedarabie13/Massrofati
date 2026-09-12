@@ -55,6 +55,8 @@ import com.banksms.expensetracker.ui.screens.chat.ChatViewModel
 import com.banksms.expensetracker.ui.screens.dashboard.DashboardScreen
 import com.banksms.expensetracker.ui.screens.dashboard.DashboardViewModel
 import com.banksms.expensetracker.ui.screens.permissions.PermissionScreen
+import com.banksms.expensetracker.ui.screens.profile.ProfileScreen
+import com.banksms.expensetracker.ui.screens.profile.ProfileViewModel
 import com.banksms.expensetracker.ui.screens.reports.ReportsScreen
 import com.banksms.expensetracker.ui.screens.reports.ReportsViewModel
 import com.banksms.expensetracker.ui.screens.senders.BankSendersScreen
@@ -131,6 +133,10 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
             val skippedViewModel: SkippedViewModel = viewModel(key = "SkippedViewModel_$uid", factory = SkippedViewModel.Factory(repository))
             val reportsViewModel: ReportsViewModel = viewModel(key = "ReportsViewModel_$uid", factory = ReportsViewModel.Factory(repository))
             val sendersViewModel: BankSendersViewModel = viewModel(key = "BankSendersViewModel_$uid", factory = BankSendersViewModel.Factory(repository))
+            val profileViewModel: ProfileViewModel = viewModel(
+                key = "ProfileViewModel_$uid",
+                factory = ProfileViewModel.Factory(app.authRepository, app.biometricUnlock, repository)
+            )
             // Shared App engine: one model load for chat + AI parsing.
             val chatEngine = remember { app.refreshEngine() }
             val chatViewModel: ChatViewModel = viewModel(
@@ -178,9 +184,10 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.background,
                 bottomBar = {
-                    // Chat is a full-screen destination with its own input bar —
-                    // the floating dock would cover it, so hide the dock there.
-                    if (currentRoute != Screen.Chat.route) {
+                    // Chat and Profile are full-screen destinations with their
+                    // own bars — the floating dock would cover them, so hide
+                    // the dock there.
+                    if (currentRoute != Screen.Chat.route && currentRoute != Screen.Profile.route) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -278,7 +285,8 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                             viewModel = dashboardViewModel,
                             onNavigateToTransactions = { navigateTo(Screen.Transactions.route) },
                             onNavigateToReports = { navigateTo(Screen.Reports.route) },
-                            onNavigateToChat = { navigateTo(Screen.Chat.route) }
+                            onNavigateToChat = { navigateTo(Screen.Chat.route) },
+                            onNavigateToProfile = { navigateTo(Screen.Profile.route) }
                         )
                     }
 
@@ -304,6 +312,13 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                     composable(Screen.Chat.route) {
                         ChatScreen(
                             viewModel = chatViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(Screen.Profile.route) {
+                        ProfileScreen(
+                            viewModel = profileViewModel,
                             onBack = { navController.popBackStack() }
                         )
                     }
