@@ -31,7 +31,13 @@ object TxOrigin {
 }
 
 object CloudDocs {
-    fun smsDocId(messageId: Long): String = "sms_$messageId"
+    /**
+     * Pipeline-scoped doc IDs: the same inbox SMS parsed by both pipelines
+     * yields DIFFERENT docs (mirrors the old two-table world). Sharing one
+     * "sms_" namespace let the AI upload overwrite regex rows.
+     */
+    fun regexDocId(messageId: Long): String = "r_$messageId"
+    fun aiDocId(messageId: Long): String = "a_$messageId"
     fun manualDocId(manualId: String): String = "manual_$manualId"
 
     /**
@@ -273,6 +279,22 @@ class FirestoreStore(
             }
         }
 
+    /** Doc-ID-aware skip read (for targeted cleanup of duplicate records). */
+    suspend fun fetchSkippedOnce(): List<Pair<String, SkippedTransaction>> =
+        withContext(Dispatchers.IO) {
+            skippedCol.get().await().documents.mapNotNull { doc ->
+                runCatching { skippedFromDoc(doc) }.getOrNull()?.let { doc.id to it }
+            }
+        }
+
+    suspend fun deleteSkippedDocs(ids: Collection<String>) = withContext(Dispatchers.IO) {
+        ids.chunked(BATCH_CHUNK).forEach { chunk ->
+            val batch = db.batch()
+            chunk.forEach { batch.delete(skippedCol.document(it)) }
+            batch.commit().awaitWrite()
+        }
+    }
+
     suspend fun deleteAllSkipped() = withContext(Dispatchers.IO) {
         val docs = skippedCol.get().await()
         docs.documents.map { it.id }.chunked(BATCH_CHUNK).forEach { chunk ->
@@ -380,26 +402,29 @@ class FirestoreStore(
 
     // ── Migration flag (server-side truth; survives reinstalls) ──────────
 
-    suspend fun isMigrationCompleted(): Boolean = withContext(Dispatchers.IO) {
+    /** Applied migration version (0 = never). Survives reinstalls. */
+    suspend fun migrationVersion(): Int = withContext(Dispatchers.IO) {
         try {
             val snap = withTimeoutOrNull(25_000) { settingsDoc.get().await() }
             if (snap == null) {
                 Log.w(TAG, "settings read timed out (backend unreachable?)")
-                return@withContext false
+                return@withContext 0
             }
-            Log.d(TAG, "settings read: fromCache=${snap.metadata.isFromCache}")
-            snap.getBoolean("migrationCompleted") == true
+            snap.getLong("migrationVersion")?.toInt()
+                ?: if (snap.getBoolean("migrationCompleted") == true) 1 else 0
         } catch (e: Exception) {
             Log.w(TAG, "settings read failed", e)
-            false
+            0
         }
     }
 
-    suspend fun markMigrationCompleted() = withContext(Dispatchers.IO) {
+    suspend fun setMigrationVersion(version: Int) = withContext(Dispatchers.IO) {
         try {
-            settingsDoc.set(mapOf("migrationCompleted" to true)).awaitWrite()
+            settingsDoc.set(
+                mapOf("migrationVersion" to version, "migrationCompleted" to true)
+            ).awaitWrite()
         } catch (e: Exception) {
-            Log.w(TAG, "markMigrationCompleted failed", e)
+            Log.w(TAG, "setMigrationVersion failed", e)
         }
     }
 

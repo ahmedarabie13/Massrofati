@@ -134,12 +134,36 @@ class TransactionRepository(
             try {
                 store.awaitReady(15000)
                 ensureSeeded()
+                dedupeSkippedRecords()
                 syncManualMirrors()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "repository init refresh failed", e)
             }
+        }
+    }
+
+    /**
+     * One-time self-heal: collapse byte-identical skip records (repeat taps
+     * used to pile them up), keeping the newest. Distinct skips are untouched.
+     */
+    private suspend fun dedupeSkippedRecords() {
+        val all = try {
+            store.fetchSkippedOnce()
+        } catch (_: Exception) {
+            return
+        }
+        if (all.size < 2) return
+        val dupIds = all.groupBy { (_, s) ->
+            if (s.originalMessageId != 0L) "id:${s.originalMessageId}"
+            else "fb:${s.sender}|${s.amount}|${s.timestamp}|${s.rawBody}"
+        }.values.filter { it.size > 1 }
+            .flatMap { group -> group.sortedByDescending { it.second.skippedAt }.drop(1) }
+            .map { it.first }
+        if (dupIds.isNotEmpty()) {
+            Log.d(TAG, "deduping ${dupIds.size} duplicate skip records")
+            runCatching { store.deleteSkippedDocs(dupIds) }
         }
     }
 
@@ -243,11 +267,8 @@ class TransactionRepository(
         }
         if (!isMonitored) return@withContext false
 
-        // Check if this transaction is marked as skipped
-        if (isSkipped(store.skipped.value, 0L, sender, timestamp, body)) {
-            return@withContext false
-        }
-
+        // Skip matching needs the parsed amount, so it happens post-parse
+        // inside each pipeline (exact messageId matches are re-checked there).
         return@withContext if (_parseMode.value == ParseMode.AI) {
             processIncomingSmsAi(sender, body, timestamp)
         } else {
@@ -265,6 +286,10 @@ class TransactionRepository(
     ): Boolean {
         val parsed = BankSmsParser.parse(body, sender, enabledTemplates) ?: return false
 
+        if (isSkipped(store.skipped.value, timestamp, sender, parsed.amount, timestamp, body)) {
+            return false
+        }
+
         // Prevent inserting if this transaction is already present
         val docs = docsInOrigins(setOf(TxOrigin.REGEX, TxOrigin.MANUAL))
         val existing = findDuplicate(
@@ -279,7 +304,7 @@ class TransactionRepository(
             return false
         }
 
-        val docId = CloudDocs.smsDocId(timestamp)
+        val docId = CloudDocs.regexDocId(timestamp)
         val transaction = parsed.toTransaction(
             messageId = timestamp,
             sender = sender,
@@ -310,6 +335,10 @@ class TransactionRepository(
             null
         } ?: return false
 
+        if (isSkipped(store.skipped.value, parsed.messageId, sender, parsed.amount, timestamp, body)) {
+            return false
+        }
+
         val docs = docsInOrigins(setOf(TxOrigin.AI, TxOrigin.MANUAL))
         val existing = findDuplicate(
             docs,
@@ -321,7 +350,7 @@ class TransactionRepository(
         )
         if (existing != null) return false
 
-        val docId = CloudDocs.smsDocId(parsed.messageId)
+        val docId = CloudDocs.aiDocId(parsed.messageId)
         store.setTransaction(
             parsed.copy(docId = docId, id = CloudDocs.stableId(docId)),
             TxOrigin.AI
@@ -405,7 +434,12 @@ class TransactionRepository(
                 ensureActive() // Stop takes effect between rows.
                 if (skipped.originalMessageId != 0L) {
                     runCatching {
-                        store.deleteTransaction(CloudDocs.smsDocId(skipped.originalMessageId))
+                        store.deleteTransactions(
+                            listOf(
+                                CloudDocs.regexDocId(skipped.originalMessageId),
+                                CloudDocs.aiDocId(skipped.originalMessageId)
+                            )
+                        )
                     }
                 }
                 val dup = findDuplicate(
@@ -453,13 +487,13 @@ class TransactionRepository(
                 if (isSkipped(
                         store.skipped.value,
                         transaction.messageId, transaction.sender,
-                        transaction.timestamp, transaction.rawBody
+                        transaction.amount, transaction.timestamp, transaction.rawBody
                     )
                 ) {
                     continue
                 }
 
-                val docId = CloudDocs.smsDocId(transaction.messageId)
+                val docId = CloudDocs.regexDocId(transaction.messageId)
                 // Check 1: Already exists with this exact messageId?
                 if (store.transactions.value.any { it.tx.docId == docId }) {
                     continue
@@ -539,7 +573,10 @@ class TransactionRepository(
                 when {
                     !AiSmsParser.hasMoneyHint(sms.body) -> tracker.markNoCurrency(sms)
                     sms.messageId in storedIds -> tracker.markDuplicate(sms)
-                    isSkipped(skippedNow, sms.messageId, sms.sender, sms.timestamp, sms.body) ->
+                    isSkipped(
+                        skippedNow, sms.messageId, sms.sender,
+                        Double.NaN, sms.timestamp, sms.body
+                    ) ->
                         tracker.markSkipped(sms)
                     verdictsNow.containsKey(sms.messageId) -> tracker.markAlreadyScanned(sms)
                     else -> fresh.add(sms)
@@ -649,7 +686,12 @@ class TransactionRepository(
             val parsedIds = parsed.map { it.messageId }.toSet()
             val verdictBatch = mutableListOf<ScanVerdict>()
             for (tx in parsed) {
-                if (isSkipped(skippedNow, tx.messageId, tx.sender, tx.timestamp, tx.rawBody)) {
+                if (
+                    isSkipped(
+                        skippedNow, tx.messageId, tx.sender,
+                        tx.amount, tx.timestamp, tx.rawBody
+                    )
+                ) {
                     tracker.markSkipped(
                         RawSms(tx.messageId, tx.sender, tx.rawBody, tx.timestamp)
                     )
@@ -663,7 +705,7 @@ class TransactionRepository(
                         timestamp = tx.timestamp
                     )
                     if (dup == null) {
-                        val docId = CloudDocs.smsDocId(tx.messageId)
+                        val docId = CloudDocs.aiDocId(tx.messageId)
                         inserted.add(tx.copy(docId = docId, id = CloudDocs.stableId(docId)))
                     }
                 }
@@ -704,6 +746,9 @@ class TransactionRepository(
      * kept (so unskip restores it) but no mirror doc is written.
      */
     private suspend fun syncManualMirrors() {
+        // Never prune on cold snapshots: an empty manuals snapshot before
+        // the first server read would look like "everything deleted".
+        store.awaitReady()
         val manualExpenses = store.manualExpenses.value
         val currentIds = manualExpenses.map { it.id }.toSet()
         val skippedNow = store.skipped.value
@@ -725,7 +770,7 @@ class TransactionRepository(
             if (isSkipped(
                     skippedNow,
                     transaction.messageId, transaction.sender,
-                    transaction.timestamp, transaction.rawBody
+                    transaction.amount, transaction.timestamp, transaction.rawBody
                 )
             ) {
                 runCatching { store.deleteTransaction(docId) }
@@ -773,19 +818,29 @@ class TransactionRepository(
         }
     }
 
-    /** Same three-rule predicate the persistent-DB skip check used. */
+    /**
+     * Skip matching. Amount equality is REQUIRED in every fuzzy rule: the
+     * same transaction always carries the same amount, while different rows
+     * can share sender + body (manual entries without a note all read
+     * "Manual entry recorded on app"). Without this, skipping one manual
+     * hid every manual with the same payment method.
+     */
     private fun isSkipped(
         skippedList: List<SkippedTransaction>,
         messageId: Long,
         sender: String,
+        amount: Double,
         timestamp: Long,
         rawBody: String
     ): Boolean {
         if (skippedList.isEmpty()) return false
         return skippedList.any { skipped ->
             (messageId != 0L && skipped.originalMessageId == messageId) ||
-            (rawBody.isNotBlank() && skipped.rawBody.isNotBlank() && skipped.sender == sender && skipped.rawBody == rawBody) ||
-            (skipped.sender == sender && kotlin.math.abs(skipped.timestamp - timestamp) < 60000 &&
+            (rawBody.isNotBlank() && skipped.rawBody.isNotBlank() && skipped.sender == sender &&
+                skipped.amount == amount && skipped.rawBody == rawBody &&
+                kotlin.math.abs(skipped.timestamp - timestamp) < 60000) ||
+            (skipped.sender == sender && skipped.amount == amount &&
+                kotlin.math.abs(skipped.timestamp - timestamp) < 60000 &&
                 rawBody.contains(skipped.amount.toInt().toString()))
         }
     }
@@ -826,18 +881,39 @@ class TransactionRepository(
     suspend fun skipTransaction(transaction: Transaction, reason: String = "User skipped") =
         withContext(Dispatchers.IO) {
             val skipped = SkippedTransaction.fromTransaction(transaction, reason)
-            store.addSkipped(skipped)
-            // Single collection now: deleting the doc removes it everywhere.
-            val docId = transaction.docId.ifBlank {
-                CloudDocs.smsDocId(transaction.messageId)
+            // No duplicate skip records: repeat taps must not pile up rows
+            // that later over-match (same sender+body) other transactions.
+            val already = store.skipped.value.any { s ->
+                (transaction.messageId != 0L && s.originalMessageId == transaction.messageId) ||
+                (s.sender == transaction.sender && s.amount == transaction.amount &&
+                    s.timestamp == transaction.timestamp && s.rawBody == transaction.rawBody)
             }
-            runCatching { store.deleteTransaction(docId) }
+            if (!already) {
+                store.addSkipped(skipped)
+            }
+            // Single collection now: deleting the doc removes it everywhere.
+            if (transaction.docId.isNotBlank()) {
+                runCatching { store.deleteTransaction(transaction.docId) }
+            } else {
+                runCatching {
+                    store.deleteTransactions(
+                        listOf(
+                            CloudDocs.regexDocId(transaction.messageId),
+                            CloudDocs.aiDocId(transaction.messageId)
+                        )
+                    )
+                }
+            }
         }
 
     suspend fun unskipTransaction(skipped: SkippedTransaction) = withContext(Dispatchers.IO) {
+        // Same tight matching as isSkipped: unskipping one default-body
+        // manual must not remove other manuals' skip records.
         store.deleteSkippedWhere { s ->
             (skipped.originalMessageId != 0L && s.originalMessageId == skipped.originalMessageId) ||
-            (skipped.rawBody.isNotBlank() && s.sender == skipped.sender && s.rawBody == skipped.rawBody) ||
+            (skipped.rawBody.isNotBlank() && s.sender == skipped.sender &&
+                s.amount == skipped.amount && s.rawBody == skipped.rawBody &&
+                kotlin.math.abs(s.timestamp - skipped.timestamp) < 60000) ||
             (s.sender == skipped.sender && s.amount == skipped.amount && s.timestamp == skipped.timestamp)
         }
         // Forget its scan verdict too, so the next AI scan re-judges it.

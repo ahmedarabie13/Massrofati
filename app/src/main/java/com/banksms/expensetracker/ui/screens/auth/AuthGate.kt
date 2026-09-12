@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -121,7 +122,12 @@ fun AuthGate(modifier: Modifier = Modifier) {
         return
     }
 
-    MainScreen(modifier = modifier)
+    // Keyed by account: switching accounts rebuilds every screen + ViewModel
+    // against the new session's repository. Without this, screens keep
+    // showing the previous account's data after a switch.
+    key(current.uid) {
+        MainScreen(modifier = modifier)
+    }
 }
 
 @Composable
