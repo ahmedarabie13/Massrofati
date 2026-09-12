@@ -58,6 +58,8 @@ class TransactionRepository(
     private val store: FirestoreStore,
     private val smsReader: SmsReader,
     prefs: SharedPreferences,
+    /** Owning account: parseMode and all reads/writes are scoped to it. */
+    private val uid: String,
     /** Provides the shared on-device engine; null where unavailable (e.g. receiver fallback). */
     private val engineProvider: (() -> ChatEngine)? = null,
     /**
@@ -68,9 +70,11 @@ class TransactionRepository(
 ) {
 
     companion object {
-        private const val PREFS_PARSE_MODE = "parsing_mode"
         private const val TAG = "AiScan"
     }
+
+    /** Parse mode is per-user (not per-device): each account keeps its own. */
+    private val prefsParseModeKey = "parsing_mode_$uid"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -84,7 +88,13 @@ class TransactionRepository(
     private val modePrefs = prefs
 
     private val _parseMode = MutableStateFlow(
-        ParseMode.fromStored(prefs.getString(PREFS_PARSE_MODE, null))
+        ParseMode.fromStored(
+            prefs.getString(prefsParseModeKey, null)
+                ?: prefs.getString("parsing_mode", null)?.also {
+                    // One-time carry-over from the pre-per-user key.
+                    prefs.edit().putString(prefsParseModeKey, it).apply()
+                }
+        )
     )
     /** Active pipeline. All read paths below follow this flow. */
     val parseMode: StateFlow<ParseMode> = _parseMode.asStateFlow()
@@ -102,7 +112,7 @@ class TransactionRepository(
     }
 
     suspend fun setParseMode(mode: ParseMode) = withContext(Dispatchers.IO) {
-        modePrefs.edit().putString(PREFS_PARSE_MODE, mode.name).apply()
+        modePrefs.edit().putString(prefsParseModeKey, mode.name).apply()
         _parseMode.value = mode
     }
 

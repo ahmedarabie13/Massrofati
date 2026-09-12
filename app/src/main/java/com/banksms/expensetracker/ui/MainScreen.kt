@@ -82,7 +82,13 @@ private fun barLabel(screen: Screen): String = when (screen) {
 }
 
 @Composable
-fun MainScreen(modifier: Modifier = Modifier) {
+/**
+ * @param uid owning account. All ViewModels are keyed by it so an account
+ * switch builds fresh ViewModels on the new session's repository — the
+ * activity-scoped ViewModel cache would otherwise keep serving the
+ * previous account's data (key() alone does not clear it).
+ */
+fun MainScreen(uid: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val app = context.applicationContext as BankSmsApp
     val repository = app.repository
@@ -120,14 +126,15 @@ fun MainScreen(modifier: Modifier = Modifier) {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
 
-            val dashboardViewModel: DashboardViewModel = viewModel(factory = DashboardViewModel.Factory(repository))
-            val transactionsViewModel: TransactionsViewModel = viewModel(factory = TransactionsViewModel.Factory(repository))
-            val skippedViewModel: SkippedViewModel = viewModel(factory = SkippedViewModel.Factory(repository))
-            val reportsViewModel: ReportsViewModel = viewModel(factory = ReportsViewModel.Factory(repository))
-            val sendersViewModel: BankSendersViewModel = viewModel(factory = BankSendersViewModel.Factory(repository))
+            val dashboardViewModel: DashboardViewModel = viewModel(key = "DashboardViewModel_$uid", factory = DashboardViewModel.Factory(repository))
+            val transactionsViewModel: TransactionsViewModel = viewModel(key = "TransactionsViewModel_$uid", factory = TransactionsViewModel.Factory(repository))
+            val skippedViewModel: SkippedViewModel = viewModel(key = "SkippedViewModel_$uid", factory = SkippedViewModel.Factory(repository))
+            val reportsViewModel: ReportsViewModel = viewModel(key = "ReportsViewModel_$uid", factory = ReportsViewModel.Factory(repository))
+            val sendersViewModel: BankSendersViewModel = viewModel(key = "BankSendersViewModel_$uid", factory = BankSendersViewModel.Factory(repository))
             // Shared App engine: one model load for chat + AI parsing.
             val chatEngine = remember { app.refreshEngine() }
             val chatViewModel: ChatViewModel = viewModel(
+                key = "ChatViewModel_$uid",
                 factory = ChatViewModel.Factory(
                     context.applicationContext as android.app.Application,
                     repository,

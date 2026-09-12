@@ -64,6 +64,7 @@ class BankSmsApp : Application() {
      */
     @Synchronized
     fun openSession(uid: String): TransactionRepository {
+        Log.d("BankSmsApp", "openSession ${uid.take(6)} (current=$sessionUid)")
         if (isSessionOpen(uid)) return repository
         closeSession()
         val store = FirestoreStore(uid, FirebaseFirestore.getInstance())
@@ -71,6 +72,7 @@ class BankSmsApp : Application() {
             store = store,
             smsReader = SmsReader(this),
             prefs = getSharedPreferences("masari_prefs", Context.MODE_PRIVATE),
+            uid = uid,
             engineProvider = { llmEngine },
             // Fresh engine per scan batch (single owner each, so a stopped
             // scan can abandon in-flight batches safely).
@@ -79,7 +81,7 @@ class BankSmsApp : Application() {
         sessionUid = uid
         sessionScope.launch {
             try {
-                LegacyLocalMigration.uploadIfNeeded(this@BankSmsApp, store)
+                LegacyLocalMigration.uploadIfNeeded(this@BankSmsApp, store, uid)
             } catch (e: Exception) {
                 Log.w("BankSmsApp", "legacy migration launch failed", e)
             }

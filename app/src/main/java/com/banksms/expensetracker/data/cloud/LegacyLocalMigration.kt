@@ -31,12 +31,25 @@ import kotlinx.coroutines.withContext
 object LegacyLocalMigration {
     private const val TAG = "LegacyMigration"
     private const val CURRENT_VERSION = 2
+    private const val CLAIM_PREFS = "cloud_migration_prefs"
+    private const val KEY_CLAIMED_BY = "legacy_claimed_by_uid"
 
-    suspend fun uploadIfNeeded(context: Context, store: FirestoreStore) =
+    suspend fun uploadIfNeeded(context: Context, store: FirestoreStore, uid: String) =
         withContext(Dispatchers.IO) {
             val done = store.migrationVersion()
             if (done >= CURRENT_VERSION) {
+                // Backfill the local claim so a second account on this phone
+                // never re-uploads the same on-device snapshot.
+                claimLocal(context, uid)
                 Log.d(TAG, "migration v$done already applied, skipping")
+                return@withContext
+            }
+            // The on-device snapshot has ONE owner: whoever migrates first.
+            // A second account on a shared phone builds its own cloud from
+            // its own inbox syncs instead of copying the first account.
+            val claimedBy = claimedBy(context)
+            if (claimedBy != null && claimedBy != uid) {
+                Log.d(TAG, "legacy snapshot owned by another account on this device, skipping upload")
                 return@withContext
             }
             try {
@@ -45,6 +58,7 @@ object LegacyLocalMigration {
                 }
                 uploadAll(context, store)
                 store.setMigrationVersion(CURRENT_VERSION)
+                claimLocal(context, uid)
             } catch (e: Exception) {
                 // Never block sign-in on migration: snapshots will merge later
                 // and the version stays low so the next launch retries.
@@ -169,4 +183,19 @@ object LegacyLocalMigration {
     /** Same natural key the live dedup uses (sender/amount/type/body/minute). */
     private fun naturalKey(tx: Transaction): String =
         "${tx.sender}|${tx.amount}|${tx.type.name}|${tx.rawBody}|${tx.timestamp / 60000}"
+
+    private fun prefs(context: Context) =
+        context.applicationContext.getSharedPreferences(CLAIM_PREFS, Context.MODE_PRIVATE)
+
+    private fun claimedBy(context: Context): String? =
+        prefs(context).getString(KEY_CLAIMED_BY, null)
+
+    private fun claimLocal(context: Context, uid: String) {
+        try {
+            if (claimedBy(context) == null) {
+                prefs(context).edit().putString(KEY_CLAIMED_BY, uid).apply()
+            }
+        } catch (_: Exception) {
+        }
+    }
 }

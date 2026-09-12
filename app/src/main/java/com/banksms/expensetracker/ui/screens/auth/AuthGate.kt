@@ -109,11 +109,17 @@ fun AuthGate(modifier: Modifier = Modifier) {
 
     // Open the Firestore session before the app touches any data.
     LaunchedEffect(current.uid) {
+        android.util.Log.d("AuthGate", "session effect for ${current.uid.take(6)}")
         sessionReady = false
         try {
             app.openSession(current.uid)
             sessionReady = app.isSessionOpen(current.uid)
-        } catch (_: Exception) {
+            android.util.Log.d(
+                "AuthGate",
+                "session ready=$sessionReady for ${current.uid.take(6)}"
+            )
+        } catch (e: Exception) {
+            android.util.Log.w("AuthGate", "openSession failed", e)
             sessionReady = false
         }
     }
@@ -122,11 +128,13 @@ fun AuthGate(modifier: Modifier = Modifier) {
         return
     }
 
-    // Keyed by account: switching accounts rebuilds every screen + ViewModel
-    // against the new session's repository. Without this, screens keep
-    // showing the previous account's data after a switch.
+    // Keyed by account, and MainScreen keys every ViewModel by uid too:
+    // switching accounts rebuilds screens AND ViewModels against the new
+    // session's repository. Neither key() nor a new repository alone is
+    // enough — the activity-scoped ViewModel cache would keep serving the
+    // previous account's data.
     key(current.uid) {
-        MainScreen(modifier = modifier)
+        MainScreen(uid = current.uid, modifier = modifier)
     }
 }
 

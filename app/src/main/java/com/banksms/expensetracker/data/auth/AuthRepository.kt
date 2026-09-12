@@ -14,8 +14,10 @@ import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
@@ -27,12 +29,17 @@ import kotlinx.coroutines.tasks.await
 class AuthRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) {
-    /** Emits the current user on every sign-in / sign-out / token refresh. */
+    /**
+     * Emits the current user on every sign-in / sign-out / token refresh.
+     * Conflated: auth state is latest-wins, and a rendezvous channel could
+     * drop a rapid sign-out→sign-in transition (leaving the gate stuck on
+     * the previous account's session).
+     */
     val user: Flow<FirebaseUser?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { trySend(it.currentUser) }
         auth.addAuthStateListener(listener)
         awaitClose { auth.removeAuthStateListener(listener) }
-    }
+    }.buffer(capacity = Channel.CONFLATED)
 
     val currentUser: FirebaseUser? get() = auth.currentUser
 
