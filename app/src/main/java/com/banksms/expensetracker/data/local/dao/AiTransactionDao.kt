@@ -1,69 +1,55 @@
 package com.banksms.expensetracker.data.local.dao
 
 import androidx.room.*
-import com.banksms.expensetracker.data.local.entity.TransactionEntity
+import com.banksms.expensetracker.data.local.entity.AiTransactionEntity
 import kotlinx.coroutines.flow.Flow
 
-data class BankExpenseDbSummary(
-    val sender: String,
-    val totalExpense: Double?,
-    val totalIncome: Double?,
-    val transactionCount: Int
-)
-
-data class CategoryDbSummary(
-    val category: String,
-    val totalAmount: Double?,
-    val count: Int
-)
-
-data class MonthlyDbTrend(
-    val yearMonth: String,
-    val totalExpense: Double?,
-    val totalIncome: Double?
-)
-
+/**
+ * Mirrors [TransactionDao] against the `ai_transactions` table in the
+ * separate AI database. Kept as a duplicate (rather than a generic DAO)
+ * because Room generates implementations per entity type.
+ */
 @Dao
-interface TransactionDao {
+interface AiTransactionDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insert(transaction: TransactionEntity): Long
+    suspend fun insert(transaction: AiTransactionEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertAll(transactions: List<TransactionEntity>): List<Long>
+    suspend fun insertAll(transactions: List<AiTransactionEntity>): List<Long>
 
     @Update
-    suspend fun update(transaction: TransactionEntity)
+    suspend fun update(transaction: AiTransactionEntity)
 
     @Delete
-    suspend fun delete(transaction: TransactionEntity)
+    suspend fun delete(transaction: AiTransactionEntity)
 
-    @Query("DELETE FROM transactions WHERE id = :id")
+    @Query("DELETE FROM ai_transactions WHERE id = :id")
     suspend fun deleteById(id: Long)
 
-    @Query("DELETE FROM transactions")
+    @Query("DELETE FROM ai_transactions")
     suspend fun deleteAll()
 
-    @Query("SELECT * FROM transactions WHERE id = :id LIMIT 1")
-    suspend fun getById(id: Long): TransactionEntity?
+    @Query("SELECT * FROM ai_transactions WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): AiTransactionEntity?
 
-    @Query("SELECT * FROM transactions WHERE messageId = :messageId LIMIT 1")
-    suspend fun getByMessageId(messageId: Long): TransactionEntity?
+    @Query("SELECT * FROM ai_transactions WHERE messageId = :messageId LIMIT 1")
+    suspend fun getByMessageId(messageId: Long): AiTransactionEntity?
 
-    @Query("DELETE FROM transactions WHERE messageId = :messageId")
+    @Query("DELETE FROM ai_transactions WHERE messageId = :messageId")
     suspend fun deleteByMessageId(messageId: Long)
 
-    @Query("SELECT * FROM transactions WHERE manualId = :manualId LIMIT 1")
-    suspend fun getByManualId(manualId: String): TransactionEntity?
+    @Query("SELECT * FROM ai_transactions WHERE manualId = :manualId LIMIT 1")
+    suspend fun getByManualId(manualId: String): AiTransactionEntity?
 
-    @Query("DELETE FROM transactions WHERE manualId = :manualId")
+    @Query("DELETE FROM ai_transactions WHERE manualId = :manualId")
     suspend fun deleteByManualId(manualId: String)
 
-    @Query("SELECT manualId FROM transactions WHERE isManual = 1 AND manualId IS NOT NULL")
+    @Query("SELECT manualId FROM ai_transactions WHERE isManual = 1 AND manualId IS NOT NULL")
     suspend fun getAllManualIds(): List<String>
 
     @Query("""
-        SELECT * FROM transactions 
+        SELECT * FROM ai_transactions 
         WHERE sender = :sender 
         AND ABS(timestamp - :timestamp) < 120000
         AND (rawBody = :rawBody OR (amount = :amount AND type = :type))
@@ -76,30 +62,33 @@ interface TransactionDao {
         type: String,
         rawBody: String,
         timestamp: Long
-    ): TransactionEntity?
+    ): AiTransactionEntity?
 
     @Query("""
-        DELETE FROM transactions 
+        DELETE FROM ai_transactions 
         WHERE id NOT IN (
             SELECT MIN(id) 
-            FROM transactions 
+            FROM ai_transactions 
             GROUP BY sender, amount, rawBody, (timestamp / 60000)
         )
     """)
     suspend fun deleteDuplicates()
 
-    @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
-    fun getAllTransactionsFlow(): Flow<List<TransactionEntity>>
+    @Query("SELECT * FROM ai_transactions ORDER BY timestamp DESC")
+    fun getAllTransactionsFlow(): Flow<List<AiTransactionEntity>>
+
+    @Query("SELECT * FROM ai_transactions ORDER BY timestamp DESC")
+    suspend fun getAllSync(): List<AiTransactionEntity>
 
     @Query("""
-        SELECT * FROM transactions 
+        SELECT * FROM ai_transactions 
         WHERE timestamp >= :startTime AND timestamp <= :endTime
         ORDER BY timestamp DESC
     """)
-    fun getTransactionsInRangeFlow(startTime: Long, endTime: Long): Flow<List<TransactionEntity>>
+    fun getTransactionsInRangeFlow(startTime: Long, endTime: Long): Flow<List<AiTransactionEntity>>
 
     @Query("""
-        SELECT * FROM transactions 
+        SELECT * FROM ai_transactions 
         WHERE timestamp >= :startTime AND timestamp <= :endTime
         AND (:type IS NULL OR type = :type)
         AND (:sender IS NULL OR sender = :sender)
@@ -116,16 +105,16 @@ interface TransactionDao {
         category: String? = null,
         searchQuery: String? = null,
         manualOnly: Boolean = false
-    ): Flow<List<TransactionEntity>>
+    ): Flow<List<AiTransactionEntity>>
 
     @Query("""
-        SELECT COALESCE(SUM(amount), 0.0) FROM transactions 
+        SELECT COALESCE(SUM(amount), 0.0) FROM ai_transactions 
         WHERE type = 'EXPENSE' AND timestamp >= :startTime AND timestamp <= :endTime
     """)
     fun getTotalExpenseFlow(startTime: Long, endTime: Long): Flow<Double>
 
     @Query("""
-        SELECT COALESCE(SUM(amount), 0.0) FROM transactions 
+        SELECT COALESCE(SUM(amount), 0.0) FROM ai_transactions 
         WHERE type = 'INCOME' AND timestamp >= :startTime AND timestamp <= :endTime
     """)
     fun getTotalIncomeFlow(startTime: Long, endTime: Long): Flow<Double>
@@ -136,7 +125,7 @@ interface TransactionDao {
             SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END) AS totalExpense,
             SUM(CASE WHEN type = 'INCOME' THEN amount ELSE 0 END) AS totalIncome,
             COUNT(*) AS transactionCount
-        FROM transactions
+        FROM ai_transactions
         WHERE timestamp >= :startTime AND timestamp <= :endTime
         GROUP BY sender
         ORDER BY totalExpense DESC
@@ -148,7 +137,7 @@ interface TransactionDao {
             category,
             SUM(amount) AS totalAmount,
             COUNT(*) AS count
-        FROM transactions
+        FROM ai_transactions
         WHERE type = 'EXPENSE' AND timestamp >= :startTime AND timestamp <= :endTime
         GROUP BY category
         ORDER BY totalAmount DESC
@@ -160,15 +149,15 @@ interface TransactionDao {
             strftime('%Y-%m', datetime(timestamp / 1000, 'unixepoch')) AS yearMonth,
             SUM(CASE WHEN type = 'EXPENSE' THEN amount ELSE 0 END) AS totalExpense,
             SUM(CASE WHEN type = 'INCOME' THEN amount ELSE 0 END) AS totalIncome
-        FROM transactions
+        FROM ai_transactions
         GROUP BY yearMonth
         ORDER BY yearMonth ASC
     """)
     fun getMonthlyTrendsFlow(): Flow<List<MonthlyDbTrend>>
 
-    @Query("SELECT COUNT(*) FROM transactions")
+    @Query("SELECT COUNT(*) FROM ai_transactions")
     suspend fun countTransactions(): Int
 
-    @Query("SELECT MAX(timestamp) FROM transactions WHERE sender = :sender")
+    @Query("SELECT MAX(timestamp) FROM ai_transactions WHERE sender = :sender")
     suspend fun getLatestTimestampForSender(sender: String): Long?
 }

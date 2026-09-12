@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.banksms.expensetracker.data.model.BankSender
 import com.banksms.expensetracker.data.model.MessageTemplate
+import com.banksms.expensetracker.data.model.ParseMode
+import com.banksms.expensetracker.data.parser.AiScanProgress
 import com.banksms.expensetracker.data.reader.DiscoveredSender
 import com.banksms.expensetracker.data.repository.TransactionRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -19,7 +22,12 @@ data class BankSendersUiState(
     val showDiscoveredDialog: Boolean = false,
     val feedbackMessage: String? = null,
     val storagePath: String = "",
-    val isPublicStorageActive: Boolean = false
+    val isPublicStorageActive: Boolean = false,
+    val parseMode: ParseMode = ParseMode.MANUAL,
+    val aiScan: AiScanProgress? = null,
+    val isAiSyncing: Boolean = false,
+    /** Any sync running (this screen's rescan or Dashboard auto-sync). */
+    val syncRunning: Boolean = false
 )
 
 class BankSendersViewModel(
@@ -46,13 +54,29 @@ class BankSendersViewModel(
         DiscoveryState(discovered, discovering, showDialog)
     }
 
+    private val _isAiSyncing = MutableStateFlow(false)
+
     val uiState: StateFlow<BankSendersUiState> = combine(
         repository.getSendersWithStats(),
         repository.messageTemplates,
         _selectedTab,
         _discoveryState,
-        _feedbackMessage
-    ) { senders, templates, tab, discovery, msg ->
+        _feedbackMessage,
+        repository.parseMode,
+        repository.aiScanProgress,
+        _isAiSyncing,
+        repository.isSyncRunning
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        val senders = args[0] as List<BankSender>
+        val templates = args[1] as List<MessageTemplate>
+        val tab = args[2] as Int
+        val discovery = args[3] as DiscoveryState
+        val msg = args[4] as String?
+        val mode = args[5] as ParseMode
+        val aiScan = args[6] as AiScanProgress?
+        val aiSyncing = args[7] as Boolean
+        val running = args[8] as Boolean
         BankSendersUiState(
             senders = senders,
             templates = templates,
@@ -62,7 +86,11 @@ class BankSendersViewModel(
             showDiscoveredDialog = discovery.showDiscoveredDialog,
             feedbackMessage = msg,
             storagePath = repository.getStorageDirectoryPath(),
-            isPublicStorageActive = repository.isPublicStorageActive()
+            isPublicStorageActive = repository.isPublicStorageActive(),
+            parseMode = mode,
+            aiScan = aiScan,
+            isAiSyncing = aiSyncing,
+            syncRunning = running
         )
     }.stateIn(
         scope = viewModelScope,
@@ -148,6 +176,61 @@ class BankSendersViewModel(
 
     fun clearFeedbackMessage() {
         _feedbackMessage.value = null
+    }
+
+    // ── Parsing mode (manual regex vs on-device AI) ─────────────────────
+
+    fun setParseMode(mode: ParseMode) {
+        viewModelScope.launch {
+            repository.setParseMode(mode)
+            _feedbackMessage.value = if (mode == ParseMode.AI) {
+                "AI parsing active — dashboard, transactions and reports now read the AI database"
+            } else {
+                "Manual parsing active — reading the regex-parser database"
+            }
+        }
+    }
+
+    /** True when the LLM file is on disk so AI parsing can actually run. */
+    fun isAiModelAvailable(): Boolean = repository.isAiEngineAvailable()
+
+    /** Full inbox rescan through the active pipeline (AI or manual). */
+    fun rescanInbox() {
+        if (_isAiSyncing.value) return
+        viewModelScope.launch {
+            _isAiSyncing.value = true
+            try {
+                val result = repository.syncTransactionsFromSms()
+                _feedbackMessage.value = when {
+                    result.errors.isNotEmpty() -> result.errors.first()
+                    result.transactionsImported > 0 ->
+                        "AI scan done — ${result.transactionsImported} transactions from ${result.messagesScanned} messages."
+                    result.messagesScanned > 0 ->
+                        "AI scan done — no new transactions in ${result.messagesScanned} messages."
+                    else -> "No bank messages found in inbox."
+                }
+            } catch (e: CancellationException) {
+                _feedbackMessage.value = "Scan stopped — partial results kept."
+            } finally {
+                _isAiSyncing.value = false
+            }
+        }
+    }
+
+    /** Stops a running sync (manual or AI): in-flight work finishes, partial results kept. */
+    fun stopSync() {
+        repository.cancelSync()
+    }
+
+    fun clearAiData() {
+        viewModelScope.launch {
+            repository.clearAiTransactions()
+            _feedbackMessage.value = "AI database cleared — manual data untouched"
+        }
+    }
+
+    fun dismissAiScan() {
+        repository.dismissAiScanProgress()
     }
 
     // ── Discovery ────────────────────────────────────────────────────────

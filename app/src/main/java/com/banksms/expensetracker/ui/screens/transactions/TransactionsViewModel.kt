@@ -21,6 +21,7 @@ data class TransactionsUiState(
     val selectedBank: String? = null,
     val selectedCategory: String? = null,
     val searchQuery: String = "",
+    val manualOnly: Boolean = false,
     val transactions: List<Transaction> = emptyList(),
     val availableBanks: List<String> = emptyList(),
     val skippedCount: Int = 0,
@@ -37,6 +38,7 @@ class TransactionsViewModel(
     private val _selectedBank = MutableStateFlow<String?>(null)
     private val _selectedCategory = MutableStateFlow<String?>(null)
     private val _searchQuery = MutableStateFlow("")
+    private val _manualOnly = MutableStateFlow(false)
 
     private val _senders = repository.getSendersWithStats()
 
@@ -45,9 +47,18 @@ class TransactionsViewModel(
         _selectedType,
         _selectedBank,
         _selectedCategory,
-        _searchQuery
-    ) { range, type, bank, category, query ->
-        FilterParams(range, type, bank, category, query)
+        _searchQuery,
+        _manualOnly
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        FilterParams(
+            range = args[0] as DateRange,
+            type = args[1] as TransactionType?,
+            bank = args[2] as String?,
+            category = args[3] as String?,
+            query = args[4] as String,
+            manualOnly = args[5] as Boolean
+        )
     }.flatMapLatest { params ->
         repository.getFilteredTransactions(
             startTime = params.range.startTime,
@@ -55,7 +66,8 @@ class TransactionsViewModel(
             type = params.type,
             sender = params.bank,
             category = params.category,
-            searchQuery = params.query
+            searchQuery = params.query,
+            manualOnly = params.manualOnly
         )
     }
 
@@ -64,9 +76,18 @@ class TransactionsViewModel(
         _selectedType,
         _selectedBank,
         _selectedCategory,
-        _searchQuery
-    ) { range, type, bank, category, query ->
-        FilterParams(range, type, bank, category, query)
+        _searchQuery,
+        _manualOnly
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        FilterParams(
+            range = args[0] as DateRange,
+            type = args[1] as TransactionType?,
+            bank = args[2] as String?,
+            category = args[3] as String?,
+            query = args[4] as String,
+            manualOnly = args[5] as Boolean
+        )
     }
 
     val uiState: StateFlow<TransactionsUiState> = combine(
@@ -81,6 +102,7 @@ class TransactionsViewModel(
             selectedBank = filterParams.bank,
             selectedCategory = filterParams.category,
             searchQuery = filterParams.query,
+            manualOnly = filterParams.manualOnly,
             transactions = transactions,
             availableBanks = senders.map { it.senderId },
             skippedCount = skipped.size
@@ -101,6 +123,10 @@ class TransactionsViewModel(
 
     fun setBankFilter(bank: String?) {
         _selectedBank.value = bank
+    }
+
+    fun setManualOnlyFilter(manualOnly: Boolean) {
+        _manualOnly.value = manualOnly
     }
 
     fun setDateRangePreset(preset: DateRangePreset) {
@@ -142,7 +168,8 @@ class TransactionsViewModel(
         val type: TransactionType?,
         val bank: String?,
         val category: String?,
-        val query: String
+        val query: String,
+        val manualOnly: Boolean = false
     )
 
     class Factory(private val repository: TransactionRepository) : ViewModelProvider.Factory {

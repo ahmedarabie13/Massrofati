@@ -10,6 +10,7 @@ import com.banksms.expensetracker.data.repository.TransactionRepository
 import com.banksms.expensetracker.util.DateRange
 import com.banksms.expensetracker.util.DateRangePreset
 import com.banksms.expensetracker.util.DateUtils
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -71,15 +72,25 @@ class DashboardViewModel(
         viewModelScope.launch {
             _isSyncing.value = true
             _syncMessage.value = null
-            val result = repository.syncTransactionsFromSms()
-            _isSyncing.value = false
-            _syncMessage.value = when {
-                result.errors.isNotEmpty() -> result.errors.first()
-                result.transactionsImported > 0 -> "Synced! ${result.transactionsImported} new transactions imported."
-                result.messagesScanned > 0 -> "Up to date (${result.messagesScanned} bank SMS scanned)."
-                else -> "No new bank messages found in inbox."
+            try {
+                val result = repository.syncTransactionsFromSms()
+                _syncMessage.value = when {
+                    result.errors.isNotEmpty() -> result.errors.first()
+                    result.transactionsImported > 0 -> "Synced! ${result.transactionsImported} new transactions imported."
+                    result.messagesScanned > 0 -> "Up to date (${result.messagesScanned} bank SMS scanned)."
+                    else -> "No new bank messages found in inbox."
+                }
+            } catch (e: CancellationException) {
+                _syncMessage.value = "Sync stopped — partial results kept."
+            } finally {
+                _isSyncing.value = false
             }
         }
+    }
+
+    /** Stops a running sync (manual or AI): in-flight work finishes, partial results kept. */
+    fun stopSync() {
+        repository.cancelSync()
     }
 
     fun skipTransaction(transaction: Transaction) {

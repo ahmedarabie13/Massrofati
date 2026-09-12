@@ -50,6 +50,8 @@ import androidx.navigation.compose.rememberNavController
 import com.banksms.expensetracker.BankSmsApp
 import com.banksms.expensetracker.ui.components.AddEditExpenseDialog
 import com.banksms.expensetracker.ui.navigation.Screen
+import com.banksms.expensetracker.ui.screens.chat.ChatScreen
+import com.banksms.expensetracker.ui.screens.chat.ChatViewModel
 import com.banksms.expensetracker.ui.screens.dashboard.DashboardScreen
 import com.banksms.expensetracker.ui.screens.dashboard.DashboardViewModel
 import com.banksms.expensetracker.ui.screens.permissions.PermissionScreen
@@ -123,6 +125,15 @@ fun MainScreen(modifier: Modifier = Modifier) {
             val skippedViewModel: SkippedViewModel = viewModel(factory = SkippedViewModel.Factory(repository))
             val reportsViewModel: ReportsViewModel = viewModel(factory = ReportsViewModel.Factory(repository))
             val sendersViewModel: BankSendersViewModel = viewModel(factory = BankSendersViewModel.Factory(repository))
+            // Shared App engine: one model load for chat + AI parsing.
+            val chatEngine = remember { app.refreshEngine() }
+            val chatViewModel: ChatViewModel = viewModel(
+                factory = ChatViewModel.Factory(
+                    context.applicationContext as android.app.Application,
+                    repository,
+                    chatEngine
+                )
+            )
 
             var showAddExpense by remember { mutableStateOf(false) }
 
@@ -160,6 +171,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.background,
                 bottomBar = {
+                    // Chat is a full-screen destination with its own input bar —
+                    // the floating dock would cover it, so hide the dock there.
+                    if (currentRoute != Screen.Chat.route) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -169,7 +183,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     ) {
                         Surface(
                             shape = RoundedCornerShape(28.dp),
-                            color = MaterialTheme.colorScheme.surface,
+                            // Semi-transparent frosted pill instead of a solid
+                            // slab: page content flows full-bleed beneath the
+                            // dock and shows faintly through it. (True backdrop
+                            // blur isn't available in Compose on minSdk 26, so
+                            // translucency + the hairline border carry the
+                            // glass effect.)
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
                             shadowElevation = 12.dp,
                             tonalElevation = 0.dp,
                             border = androidx.compose.foundation.BorderStroke(
@@ -228,6 +248,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                             )
                         }
                     }
+                    }
                 },
                 modifier = modifier.fillMaxSize(),
                 // Outer scaffold only offsets the bottom bar; each inner screen owns
@@ -249,7 +270,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         DashboardScreen(
                             viewModel = dashboardViewModel,
                             onNavigateToTransactions = { navigateTo(Screen.Transactions.route) },
-                            onNavigateToReports = { navigateTo(Screen.Reports.route) }
+                            onNavigateToReports = { navigateTo(Screen.Reports.route) },
+                            onNavigateToChat = { navigateTo(Screen.Chat.route) }
                         )
                     }
 
@@ -270,6 +292,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
                     composable(Screen.Senders.route) {
                         BankSendersScreen(viewModel = sendersViewModel)
+                    }
+
+                    composable(Screen.Chat.route) {
+                        ChatScreen(
+                            viewModel = chatViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
                     }
                 }
             }

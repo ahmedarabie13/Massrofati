@@ -71,6 +71,11 @@ dependencies {
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
+    // LiteRT-LM on-device LLM (chat spike). Pinned to 0.16.1: its Kotlin
+    // metadata (2.3.0) is readable by this project's Kotlin 2.2 toolchain
+    // (0.17.0 needs Kotlin 2.4). Re-evaluate on the next toolchain upgrade.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
+
     // Testing
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")

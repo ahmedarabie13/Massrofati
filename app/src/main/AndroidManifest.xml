@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
 
     <!-- Storage permissions to persist data files outside app data directory in /Documents/Masari (legacy data folder) -->
+    <!-- Model download for the on-device assistant (LiteRT-LM chat spike) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
@@ -22,6 +25,10 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.BankSmsExpenseTracker">
+
+        <!-- LiteRT-LM GPU backend native libraries (optional; CPU works without them) -->
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
 
         <activity
             android:name=".MainActivity"

@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -28,7 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.banksms.expensetracker.data.model.BankSender
 import com.banksms.expensetracker.data.model.MessageTemplate
+import com.banksms.expensetracker.data.model.ParseMode
 import com.banksms.expensetracker.data.model.TransactionType
+import com.banksms.expensetracker.data.parser.AiScanProgress
+import com.banksms.expensetracker.data.parser.SenderScanStatus
 import com.banksms.expensetracker.ui.components.BankBadge
 import com.banksms.expensetracker.ui.components.RizeqTopAppBar
 import com.banksms.expensetracker.ui.theme.ExpenseCoral
@@ -207,6 +211,22 @@ fun BankSendersScreen(
                 ) {
                     item {
                         Spacer(modifier = Modifier.height(10.dp))
+                        ParsingModeCard(
+                            mode = state.parseMode,
+                            aiScan = state.aiScan,
+                            isSyncing = state.isAiSyncing || state.syncRunning,
+                            modelAvailable = remember(state.parseMode) {
+                                viewModel.isAiModelAvailable()
+                            },
+                            onSelectMode = { viewModel.setParseMode(it) },
+                            onRescan = { viewModel.rescanInbox() },
+                            onClearAi = { viewModel.clearAiData() },
+                            onDismissScan = { viewModel.dismissAiScan() },
+                            onStopSync = { viewModel.stopSync() }
+                        )
+                    }
+
+                    item {
                         StoragePersistenceCard(
                             storagePath = state.storagePath,
                             isPublicStorage = state.isPublicStorageActive,
@@ -405,6 +425,331 @@ fun BankSendersScreen(
                 monitoredIds = state.senders.map { it.senderId }.toSet(),
                 onAddSender = { viewModel.addDiscoveredSender(it) },
                 onDismiss = { viewModel.closeDiscoveredDialog() }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ParsingModeCard(
+    mode: ParseMode,
+    aiScan: AiScanProgress?,
+    isSyncing: Boolean,
+    modelAvailable: Boolean,
+    onSelectMode: (ParseMode) -> Unit,
+    onRescan: () -> Unit,
+    onClearAi: () -> Unit,
+    onDismissScan: () -> Unit,
+    onStopSync: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = CardDefaults.outlinedCardBorder(enabled = true),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = DribbblePurple,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Parsing Mode",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (mode == ParseMode.AI) DribbblePurple.copy(alpha = 0.14f)
+                    else MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = if (mode == ParseMode.AI) "AI DATABASE" else "MANUAL DATABASE",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.5.sp
+                        ),
+                        color = if (mode == ParseMode.AI) DribbblePurple
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Manual is the fast regex parser. AI sends messages to the on-device " +
+                    "model 20 at a time across 3 engines in parallel and stores results " +
+                    "in a separate database. Only messages mentioning a currency are scanned. " +
+                    "Dashboard, Transactions, Reports and Assistant always follow the active mode.",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            ParseModeOption(
+                selected = mode == ParseMode.MANUAL,
+                title = "Manual parsing",
+                subtitle = "Regex + templates · instant",
+                onClick = { onSelectMode(ParseMode.MANUAL) }
+            )
+            ParseModeOption(
+                selected = mode == ParseMode.AI,
+                title = "AI parsing",
+                subtitle = "On-device model · slower, separate database",
+                onClick = { onSelectMode(ParseMode.AI) }
+            )
+
+            // The scan panel + Stop stay visible whenever a scan exists or is
+            // running — even in Manual mode, since switching modes doesn't
+            // stop a running scan and it must remain stoppable from here.
+            val showScanControls = mode == ParseMode.AI || isSyncing || aiScan != null
+            if (mode == ParseMode.AI && !modelAvailable) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "AI model not downloaded — get it from the Assistant tab. " +
+                        "Scans will report the missing model until then.",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            if (showScanControls) {
+                Spacer(modifier = Modifier.height(10.dp))
+                aiScan?.let { scan ->
+                    AiScanReport(scan = scan, onDismiss = onDismissScan)
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+                if (isSyncing) {
+                    // A sync (this rescan or Dashboard auto-sync) is running:
+                    // offer Stop. In-flight model calls finish naturally, no
+                    // new batches start, partial results are kept.
+                    OutlinedButton(
+                        onClick = onStopSync,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ExpenseCoral),
+                        border = BorderStroke(1.dp, ExpenseCoral.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Stop sync", fontWeight = FontWeight.Bold)
+                    }
+                } else if (mode == ParseMode.AI) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = onRescan,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = DribbblePurple),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Rescan inbox with AI")
+                        }
+                        TextButton(onClick = onClearAi) {
+                            Text("Clear AI data", color = ExpenseCoral)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiScanReport(scan: AiScanProgress, onDismiss: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = if (scan.finished) "Scan complete"
+                else "Scanning… batch ${scan.batchesDone}/${scan.batchesTotal}" +
+                    (if (scan.activeCalls > 0) " · ${scan.activeCalls} active" else ""),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (scan.finished) {
+                TextButton(
+                    onClick = onDismiss,
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text("Dismiss")
+                }
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = DribbblePurple
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "${scan.scanned}/${scan.totalMessages} scanned · " +
+                "${scan.imported} imported · ${scan.excluded} excluded · " +
+                "${scan.remaining} remaining",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        val toScanTotal = scan.totalMessages - scan.excluded
+        if (!scan.finished && toScanTotal > 0) {
+            Spacer(modifier = Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = scan.scanned.toFloat() / toScanTotal,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp)),
+                color = DribbblePurple
+            )
+        }
+
+        if (scan.excluded > 0) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Excluded: ${scan.excludedNoCurrency} no currency · " +
+                    "${scan.excludedDuplicate} duplicates · ${scan.excludedSkipped} skipped · " +
+                    "${scan.excludedScanned} already scanned",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        if (scan.senders.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            scan.senders.forEach { sender -> SenderScanRow(status = sender) }
+        }
+
+        scan.errors.forEach { err ->
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = err,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
+
+@Composable
+private fun SenderScanRow(status: SenderScanStatus) {
+    val dot = when {
+        status.isExcluded -> MaterialTheme.colorScheme.outline
+        status.isDone -> IncomeEmerald
+        else -> DribbblePurple
+    }
+    val label = when {
+        status.isExcluded -> "Excluded"
+        status.isDone -> "Done"
+        else -> "${status.remaining} left"
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dot)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = status.sender,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "${status.scanned}/${status.toScan}",
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = dot
+            )
+        }
+        if (!status.isDone && status.toScan > 0) {
+            Spacer(modifier = Modifier.height(3.dp))
+            LinearProgressIndicator(
+                progress = status.scanned.toFloat() / status.toScan,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp)),
+                color = DribbblePurple
+            )
+        }
+    }
+}
+
+@Composable
+private fun ParseModeOption(
+    selected: Boolean,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onClick,
+            colors = RadioButtonDefaults.colors(selectedColor = DribbblePurple)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

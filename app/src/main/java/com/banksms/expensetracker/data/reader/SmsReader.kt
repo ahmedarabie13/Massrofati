@@ -7,6 +7,7 @@ import android.provider.Telephony
 import android.util.Log
 import com.banksms.expensetracker.data.model.Transaction
 import com.banksms.expensetracker.data.parser.BankSmsParser
+import com.banksms.expensetracker.data.parser.RawSms
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -68,6 +69,65 @@ class SmsReader(private val context: Context) {
                 lastMessageDate = stats.second
             )
         }.sortedByDescending { it.messageCount }
+    }
+
+    /**
+     * Reads all SMS messages for monitored bank senders WITHOUT parsing.
+     * Used by the AI pipeline, which batches raw texts to the on-device model.
+     */
+    suspend fun readRawBankMessages(
+        monitoredSenders: Set<String>,
+        sinceTimestamp: Long = 0L
+    ): List<RawSms> = withContext(Dispatchers.IO) {
+        if (monitoredSenders.isEmpty()) return@withContext emptyList()
+
+        val messages = mutableListOf<RawSms>()
+        val projection = arrayOf(
+            Telephony.Sms._ID,
+            Telephony.Sms.ADDRESS,
+            Telephony.Sms.BODY,
+            Telephony.Sms.DATE
+        )
+
+        val senderList = monitoredSenders.toList()
+        val placeholders = senderList.joinToString(",") { "?" }
+        val selection = "${Telephony.Sms.ADDRESS} IN ($placeholders) AND ${Telephony.Sms.DATE} >= ?"
+        val selectionArgs = (senderList + sinceTimestamp.toString()).toTypedArray()
+
+        try {
+            val cursor: Cursor? = context.contentResolver.query(
+                inboxUri,
+                projection,
+                selection,
+                selectionArgs,
+                "${Telephony.Sms.DATE} DESC"
+            )
+
+            cursor?.use {
+                val idCol = it.getColumnIndexOrThrow(Telephony.Sms._ID)
+                val addressCol = it.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+                val bodyCol = it.getColumnIndexOrThrow(Telephony.Sms.BODY)
+                val dateCol = it.getColumnIndexOrThrow(Telephony.Sms.DATE)
+                val seenMessageIds = mutableSetOf<Long>()
+
+                while (it.moveToNext()) {
+                    val messageId = it.getLong(idCol)
+                    if (!seenMessageIds.add(messageId)) continue
+                    messages.add(
+                        RawSms(
+                            messageId = messageId,
+                            sender = it.getString(addressCol) ?: "",
+                            body = it.getString(bodyCol) ?: "",
+                            timestamp = it.getLong(dateCol)
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("SmsReader", "Error reading raw bank SMS inbox", e)
+        }
+
+        messages
     }
 
     /**

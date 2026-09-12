@@ -1,6 +1,5 @@
 package com.banksms.expensetracker.ui.screens.dashboard
 
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +44,7 @@ fun DashboardScreen(
     viewModel: DashboardViewModel,
     onNavigateToTransactions: () -> Unit,
     onNavigateToReports: () -> Unit = {},
+    onNavigateToChat: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -60,17 +59,6 @@ fun DashboardScreen(
             viewModel.clearSyncMessage()
         }
     }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "SyncRotation")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "SyncRotationAngle"
-    )
 
     val todayLabel = remember {
         LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM, yyyy", Locale.ENGLISH))
@@ -94,9 +82,10 @@ fun DashboardScreen(
                     incomePill = "+ ${CurrencyFormatter.format(state.summary.totalIncome, state.summary.currency)} income",
                     periodLabel = state.dateRange.label,
                     isSyncing = state.isSyncing,
-                    spinAngle = rotation,
                     onPeriodClick = { showDatePicker = true },
-                    onBellClick = { viewModel.syncSms() },
+                    // Tapping the spinner while syncing stops the sync.
+                    onSyncClick = { if (state.isSyncing) viewModel.stopSync() else viewModel.syncSms() },
+                    onChatClick = onNavigateToChat,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)
                 )
             }
@@ -345,12 +334,16 @@ fun DashboardScreen(
                             Spacer(modifier = Modifier.height(18.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
-                                    onClick = { viewModel.syncSms() },
-                                    enabled = !state.isSyncing,
+                                    onClick = { if (state.isSyncing) viewModel.stopSync() else viewModel.syncSms() },
                                     shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = DribbblePurple)
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (state.isSyncing) DribbbleCoral else DribbblePurple
+                                    )
                                 ) {
-                                    Text(if (state.isSyncing) "Scanning..." else "Scan Bank SMS", fontWeight = FontWeight.Bold)
+                                    Text(
+                                        if (state.isSyncing) "Stop" else "Scan Bank SMS",
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                                 OutlinedButton(
                                     onClick = { showAddExpenseDialog = true },
@@ -410,9 +403,9 @@ private fun BalanceHeaderCard(
     incomePill: String,
     periodLabel: String,
     isSyncing: Boolean,
-    spinAngle: Float,
     onPeriodClick: () -> Unit,
-    onBellClick: () -> Unit,
+    onSyncClick: () -> Unit,
+    onChatClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -476,30 +469,28 @@ private fun BalanceHeaderCard(
                     contentColor = Color.White
                 )
 
-                Box(contentAlignment = Alignment.TopEnd) {
-                    IconButton(onClick = onBellClick) {
-                        if (isSyncing) {
-                            Icon(
-                                imageVector = Icons.Default.Sync,
-                                contentDescription = "Syncing SMS...",
-                                tint = Color.White,
-                                modifier = Modifier.rotate(spinAngle)
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Notifications,
-                                contentDescription = "Sync Bank SMS",
-                                tint = Color.White
-                            )
-                        }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 10.dp, end = 12.dp)
-                            .size(9.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFFF4D4D))
+                IconButton(onClick = onChatClick) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "Chat with Assistant",
+                        tint = Color.White
                     )
+                }
+                IconButton(onClick = onSyncClick) {
+                    if (isSyncing) {
+                        // Static stop square: tap halts the running sync.
+                        Icon(
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = "Stop sync",
+                            tint = Color.White
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Sync Bank SMS",
+                            tint = Color.White
+                        )
+                    }
                 }
             }
 

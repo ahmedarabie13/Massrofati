@@ -191,18 +191,30 @@ fun TransactionsScreen(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Skipped review entry — always visible so the view is never orphaned
-            SkippedReviewRow(
-                count = state.skippedCount,
-                onClick = onNavigateToSkipped,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
+            // Skipped review + manual-only toggle sharing one row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SkippedReviewRow(
+                    count = state.skippedCount,
+                    onClick = onNavigateToSkipped,
+                    modifier = Modifier.weight(1f)
+                )
+                ManualOnlyToggle(
+                    checked = state.manualOnly,
+                    onClick = { viewModel.setManualOnlyFilter(!state.manualOnly) }
+                )
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 
             // Transactions List
             if (state.transactions.isEmpty()) {
-                val hasActiveFilters = state.searchQuery.isNotEmpty() || state.selectedType != null || state.selectedBank != null
+                val hasActiveFilters = state.searchQuery.isNotEmpty() || state.selectedType != null || state.selectedBank != null || state.manualOnly
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -258,6 +270,7 @@ fun TransactionsScreen(
                                         viewModel.setSearchQuery("")
                                         viewModel.setTypeFilter(null)
                                         viewModel.setBankFilter(null)
+                                        viewModel.setManualOnlyFilter(false)
                                     },
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
@@ -340,6 +353,53 @@ fun TransactionsScreen(
                 onDismiss = { editingManualExpense = null },
                 onSave = { updated -> viewModel.updateManualExpense(updated) },
                 onDelete = { manualId -> viewModel.deleteManualExpense(manualId) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ManualOnlyToggle(
+    checked: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = if (checked) DribbblePurple.copy(alpha = 0.14f)
+        else MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (checked) DribbblePurple.copy(alpha = 0.6f)
+            else MaterialTheme.colorScheme.outlineVariant
+        ),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = if (checked) Icons.Default.CheckCircle else Icons.Default.Edit,
+                contentDescription = null,
+                tint = if (checked) DribbblePurple else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Manual",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                ),
+                color = if (checked) DribbblePurple else MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = if (checked) "On" else "Off",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                color = if (checked) DribbblePurple else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
