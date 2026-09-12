@@ -138,20 +138,21 @@ fun AuthGate(modifier: Modifier = Modifier) {
         return
     }
 
-    // Open the Firestore session before the app touches any data.
+    // Open the Firestore session before the app touches any data. Retried
+    // once: a one-shot open failure must never strand the UI on the splash
+    // (LaunchedEffect does not refire for an unchanged key).
     LaunchedEffect(current.uid) {
-        android.util.Log.d("AuthGate", "session effect for ${current.uid.take(6)}")
         sessionReady = false
-        try {
-            app.openSession(current.uid)
-            sessionReady = app.isSessionOpen(current.uid)
-            android.util.Log.d(
-                "AuthGate",
-                "session ready=$sessionReady for ${current.uid.take(6)}"
-            )
-        } catch (e: Exception) {
-            android.util.Log.w("AuthGate", "openSession failed", e)
-            sessionReady = false
+        repeat(2) { attempt ->
+            try {
+                app.openSession(current.uid)
+                sessionReady = app.isSessionOpen(current.uid)
+                if (sessionReady) return@LaunchedEffect
+            } catch (e: Exception) {
+                android.util.Log.w("AuthGate", "openSession failed", e)
+                sessionReady = false
+            }
+            if (attempt == 0) kotlinx.coroutines.delay(2000)
         }
     }
     if (!app.isSessionOpen(current.uid) || !sessionReady) {
