@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,7 @@ fun AuthGate(modifier: Modifier = Modifier) {
     var sessionUnlocked by remember { mutableStateOf(false) }
     var biometricsOfferedFor by remember { mutableStateOf<String?>(null) }
     var lastUid by remember { mutableStateOf<String?>(null) }
+    var sessionReady by remember { mutableStateOf(false) }
 
     if (!authReady) {
         Splash(modifier)
@@ -62,7 +64,9 @@ fun AuthGate(modifier: Modifier = Modifier) {
         sessionUnlocked = false
         biometricsOfferedFor = null
         lastUid = null
+        sessionReady = false
         authViewModel.consumeFreshLogin()
+        app.closeSession()
         AuthFlow(authViewModel, modifier)
         return
     }
@@ -99,6 +103,21 @@ fun AuthGate(modifier: Modifier = Modifier) {
             onUsePasswordInstead = { app.authRepository.signOut() },
             modifier = modifier
         )
+        return
+    }
+
+    // Open the Firestore session before the app touches any data.
+    LaunchedEffect(current.uid) {
+        sessionReady = false
+        try {
+            app.openSession(current.uid)
+            sessionReady = app.isSessionOpen(current.uid)
+        } catch (_: Exception) {
+            sessionReady = false
+        }
+    }
+    if (!app.isSessionOpen(current.uid) || !sessionReady) {
+        Splash(modifier)
         return
     }
 

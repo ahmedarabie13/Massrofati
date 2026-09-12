@@ -1,0 +1,22 @@
+rules_version = '2';
+
+// Massrofati / BankSmsExpenseTracker Firestore rules.
+//
+// All user data lives under users/{uid}/... so isolation is structural:
+// a signed-in user can only read/write their own subtree. Deploy with:
+//   firebase deploy --only firestore:rules
+// or paste into Console -> Firestore Database -> Rules.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Per-user data: transactions, manuals, skips, templates, banks, verdicts, meta.
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Nothing else is readable or writable.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

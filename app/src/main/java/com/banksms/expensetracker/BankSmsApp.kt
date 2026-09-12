@@ -1,8 +1,12 @@
 package com.banksms.expensetracker
 
 import android.app.Application
+import android.content.Context
+import android.util.Log
 import com.banksms.expensetracker.data.auth.AuthRepository
 import com.banksms.expensetracker.data.auth.BiometricUnlock
+import com.banksms.expensetracker.data.cloud.FirestoreStore
+import com.banksms.expensetracker.data.cloud.LegacyLocalMigration
 import com.banksms.expensetracker.data.file.ExpenseFileManager
 import com.banksms.expensetracker.data.llm.ChatEngine
 import com.banksms.expensetracker.data.llm.FakeChatEngine
@@ -14,9 +18,15 @@ import com.banksms.expensetracker.data.local.AppDatabase
 import com.banksms.expensetracker.data.local.PersistentDatabase
 import com.banksms.expensetracker.data.reader.SmsReader
 import com.banksms.expensetracker.data.repository.TransactionRepository
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class BankSmsApp : Application() {
 
+    /** Legacy on-device databases: kept ONLY as the migration source. */
     lateinit var database: AppDatabase
         private set
 
@@ -30,8 +40,77 @@ class BankSmsApp : Application() {
     lateinit var fileManager: ExpenseFileManager
         private set
 
+    /**
+     * Active user session's repository (Firestore-backed). Opened by
+     * [openSession] — never touch before [isSessionOpen] is true.
+     */
     lateinit var repository: TransactionRepository
         private set
+
+    /** Uid the current [repository] belongs to (null = no session). */
+    @Volatile
+    var sessionUid: String? = null
+        private set
+
+    fun isSessionOpen(uid: String? = null): Boolean {
+        if (!::repository.isInitialized) return false
+        return uid == null || sessionUid == uid
+    }
+
+    /**
+     * Opens (or reuses) the Firestore session for [uid]: builds the store +
+     * repository and fires the one-time legacy upload. Lightweight and safe
+     * to call from the receiver, the gate, or onCreate.
+     */
+    @Synchronized
+    fun openSession(uid: String): TransactionRepository {
+        if (isSessionOpen(uid)) return repository
+        closeSession()
+        val store = FirestoreStore(uid, FirebaseFirestore.getInstance())
+        repository = TransactionRepository(
+            store = store,
+            smsReader = SmsReader(this),
+            prefs = getSharedPreferences("masari_prefs", Context.MODE_PRIVATE),
+            engineProvider = { llmEngine },
+            // Fresh engine per scan batch (single owner each, so a stopped
+            // scan can abandon in-flight batches safely).
+            engineFactory = { LiteRtLmChatEngine(this) }
+        )
+        sessionUid = uid
+        sessionScope.launch {
+            try {
+                LegacyLocalMigration.uploadIfNeeded(this@BankSmsApp, store)
+            } catch (e: Exception) {
+                Log.w("BankSmsApp", "legacy migration launch failed", e)
+            }
+        }
+        return repository
+    }
+
+    /**
+     * Returns the session repository for the currently signed-in user,
+     * opening it if needed. Null when signed out (callers must drop work —
+     * cloud data can't be attributed without a user).
+     */
+    fun ensureSession(): TransactionRepository? {
+        val uid = authRepository.currentUser?.uid ?: return null
+        return try {
+            openSession(uid)
+        } catch (e: Exception) {
+            Log.w("BankSmsApp", "openSession failed", e)
+            null
+        }
+    }
+
+    @Synchronized
+    fun closeSession() {
+        if (::repository.isInitialized) {
+            runCatching { repository.close() }
+        }
+        sessionUid = null
+    }
+
+    private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Firebase Auth wrapper (session survives process death via the SDK). */
     lateinit var authRepository: AuthRepository
@@ -55,27 +134,16 @@ class BankSmsApp : Application() {
         biometricUnlock = BiometricUnlock(this)
         database = AppDatabase.getInstance(this)
         aiDatabase = AiAppDatabase.getInstance(this)
-        val smsReader = SmsReader(this)
         fileManager = ExpenseFileManager(this)
         persistentDatabase = PersistentDatabase.getInstance(this, fileManager)
         // Kick off the idempotent JSON -> DB migration (safe to call repeatedly).
         PersistentDatabase.ensureMigrated(fileManager)
         refreshEngine()
-        val prefs = getSharedPreferences("masari_prefs", MODE_PRIVATE)
-        repository = TransactionRepository(
-            transactionDao = database.transactionDao(),
-            bankSenderDao = database.bankSenderDao(),
-            smsReader = smsReader,
-            fileManager = fileManager,
-            persistentDb = persistentDatabase,
-            aiTransactionDao = aiDatabase.aiTransactionDao(),
-            aiScannedDao = aiDatabase.aiScannedDao(),
-            prefs = prefs,
-            engineProvider = { llmEngine },
-            // Fresh engine per scan batch (single owner each, so a stopped
-            // scan can abandon in-flight batches safely).
-            engineFactory = { LiteRtLmChatEngine(this) }
-        )
+        // Reopen the previous session (if any) so background SMS intake works
+        // even before the UI gate resolves.
+        authRepository.currentUser?.uid?.let { uid ->
+            runCatching { openSession(uid) }
+        }
     }
 
     /**

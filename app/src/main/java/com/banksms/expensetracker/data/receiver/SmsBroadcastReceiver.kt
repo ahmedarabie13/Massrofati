@@ -6,10 +6,6 @@ import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
 import com.banksms.expensetracker.BankSmsApp
-import com.banksms.expensetracker.data.file.ExpenseFileManager
-import com.banksms.expensetracker.data.local.AppDatabase
-import com.banksms.expensetracker.data.reader.SmsReader
-import com.banksms.expensetracker.data.repository.TransactionRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -24,27 +20,14 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
 
         val pendingResult = goAsync()
 
-        val repository = (context.applicationContext as? BankSmsApp)?.repository ?: run {
-            // Practically unreachable (the manifest application IS BankSmsApp).
-            // No engine here, so an AI-mode SMS is dropped rather than parsed
-            // by the wrong pipeline and mixed into the wrong database.
-            val db = AppDatabase.getInstance(context)
-            val fm = ExpenseFileManager(context)
-            val pDb = com.banksms.expensetracker.data.local.PersistentDatabase.getInstance(context, fm)
-            val aiDb = com.banksms.expensetracker.data.local.AiAppDatabase.getInstance(context)
-            val sp = context.getSharedPreferences("masari_prefs", Context.MODE_PRIVATE)
-            TransactionRepository(
-                transactionDao = db.transactionDao(),
-                bankSenderDao = db.bankSenderDao(),
-                smsReader = SmsReader(context),
-                fileManager = fm,
-                persistentDb = pDb,
-                aiTransactionDao = aiDb.aiTransactionDao(),
-                aiScannedDao = aiDb.aiScannedDao(),
-                prefs = sp,
-                engineProvider = null,
-                engineFactory = null
-            )
+        // Cloud data needs a user: signed-out receivers drop the SMS.
+        // (The app auto-reopens the persisted session on process start, so
+        // this only happens when genuinely signed out.)
+        val app = context.applicationContext as? BankSmsApp
+        val repository = app?.ensureSession()
+        if (repository == null) {
+            Log.d("SmsReceiver", "No signed-in user — SMS ignored")
+            return
         }
 
         CoroutineScope(Dispatchers.IO).launch {

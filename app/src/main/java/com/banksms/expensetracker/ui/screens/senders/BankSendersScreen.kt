@@ -391,7 +391,6 @@ fun BankSendersScreen(
 
         if (showClearFilesDialog) {
             ClearFilesConfirmDialog(
-                storagePath = state.storagePath,
                 onDismiss = { showClearFilesDialog = false },
                 onConfirm = {
                     viewModel.clearAllPersistenceFiles()
@@ -1122,7 +1121,6 @@ private fun DeleteBankConfirmDialog(
 
 @Composable
 private fun ClearFilesConfirmDialog(
-    storagePath: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
@@ -1136,19 +1134,14 @@ private fun ClearFilesConfirmDialog(
                 modifier = Modifier.size(30.dp)
             )
         },
-        title = { Text("Clear All Saved Files?", fontWeight = FontWeight.Bold) },
+        title = { Text("Reset Cloud Data?", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "This will permanently delete all 4 persistence files in:\n$storagePath",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.5.sp
-                )
-                Text(
-                    text = "• manual_expenses.json\n• skipped_transactions.json\n• message_templates.json\n• monitored_banks.json",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "This permanently deletes ALL of your cloud data for this account " +
+                        "— transactions, manuals, skips, templates and banks — on every device. " +
+                        "Defaults are re-seeded afterwards.",
+                    style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
                     text = "This action cannot be undone.",
@@ -1163,7 +1156,7 @@ private fun ClearFilesConfirmDialog(
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
-                Text("Delete All Files")
+                Text("Delete Everything")
             }
         },
         dismissButton = {
@@ -1291,14 +1284,14 @@ private fun StoragePersistenceCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.FolderOpen,
+                        imageVector = Icons.Default.CloudDone,
                         contentDescription = null,
                         tint = DribbblePurple,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Data Files & Persistence",
+                        text = "Cloud Backup & Sync",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -1306,12 +1299,12 @@ private fun StoragePersistenceCard(
 
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (isPublicStorage) DribbblePurple.copy(alpha = 0.14f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                    color = DribbblePurple.copy(alpha = 0.14f)
                 ) {
                     Text(
-                        text = if (isPublicStorage) "Public Storage (Persistent)" else "Internal Sandboxed",
+                        text = "Firestore (Private)",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.5.sp),
-                        color = if (isPublicStorage) DribbblePurple else MaterialTheme.colorScheme.error,
+                        color = DribbblePurple,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                     )
                 }
@@ -1320,17 +1313,8 @@ private fun StoragePersistenceCard(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Directory: $storagePath",
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 10.5.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Files saved here survive clearing application storage in Android Settings. You can also view or edit them via any file manager.",
+                text = "All data syncs to your private cloud space and restores on any device you sign into. " +
+                    "Reads work offline from the on-device cache.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1379,7 +1363,7 @@ private fun StoragePersistenceCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Clear All Saved Files",
+                        text = "Reset Cloud Data",
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 }

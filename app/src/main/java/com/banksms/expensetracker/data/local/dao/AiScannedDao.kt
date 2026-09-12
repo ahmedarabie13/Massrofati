@@ -27,4 +27,8 @@ interface AiScannedDao {
 
     @Query("SELECT COUNT(*) FROM ai_scanned")
     suspend fun count(): Int
+
+    /** Migration-only bulk read (lets verdicts survive the move to cloud). */
+    @Query("SELECT * FROM ai_scanned")
+    suspend fun getAll(): List<AiScannedEntity>
 }

@@ -2,20 +2,15 @@ package com.banksms.expensetracker.data.repository
 
 import android.content.SharedPreferences
 import android.util.Log
-import com.banksms.expensetracker.data.file.ExpenseFileManager
+import com.banksms.expensetracker.data.cloud.CloudDocs
+import com.banksms.expensetracker.data.cloud.FirestoreStore
+import com.banksms.expensetracker.data.cloud.ScanVerdict
+import com.banksms.expensetracker.data.cloud.TxDoc
+import com.banksms.expensetracker.data.cloud.TxOrigin
 import com.banksms.expensetracker.data.file.ManualExpense
 import com.banksms.expensetracker.data.file.SkippedTransaction
 import com.banksms.expensetracker.data.llm.ChatEngine
 import com.banksms.expensetracker.data.llm.EngineState
-import com.banksms.expensetracker.data.local.PersistentDatabase
-import com.banksms.expensetracker.data.local.dao.AiScannedDao
-import com.banksms.expensetracker.data.local.dao.AiTransactionDao
-import com.banksms.expensetracker.data.local.dao.BankSenderDao
-import com.banksms.expensetracker.data.local.dao.BankExpenseDbSummary
-import com.banksms.expensetracker.data.local.dao.CategoryDbSummary
-import com.banksms.expensetracker.data.local.dao.MonthlyDbTrend
-import com.banksms.expensetracker.data.local.dao.TransactionDao
-import com.banksms.expensetracker.data.local.entity.*
 import com.banksms.expensetracker.data.model.*
 import com.banksms.expensetracker.data.parser.AiScanProgress
 import com.banksms.expensetracker.data.parser.AiScanTracker
@@ -32,6 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.*
@@ -39,6 +35,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -48,14 +46,17 @@ data class SyncResult(
     val errors: List<String> = emptyList()
 )
 
+/**
+ * Firestore-backed repository. Public API is unchanged from the Room era,
+ * so ViewModels and screens work untouched; all SQL moved to in-memory
+ * computation over the snapshot-backed collections in [FirestoreStore].
+ *
+ * One user = one repository instance ([BankSmsApp.openSession]); [close]
+ * detaches all snapshot listeners (call on sign-out / account switch).
+ */
 class TransactionRepository(
-    private val transactionDao: TransactionDao,
-    private val bankSenderDao: BankSenderDao,
+    private val store: FirestoreStore,
     private val smsReader: SmsReader,
-    private val fileManager: ExpenseFileManager,
-    private val persistentDb: PersistentDatabase,
-    private val aiTransactionDao: AiTransactionDao,
-    private val aiScannedDao: AiScannedDao,
     prefs: SharedPreferences,
     /** Provides the shared on-device engine; null where unavailable (e.g. receiver fallback). */
     private val engineProvider: (() -> ChatEngine)? = null,
@@ -70,6 +71,13 @@ class TransactionRepository(
         private const val PREFS_PARSE_MODE = "parsing_mode"
         private const val TAG = "AiScan"
     }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Origins visible in each mode (manual mirrors show in both). */
+    private fun visibleOrigins(mode: ParseMode): Set<String> =
+        if (mode == ParseMode.AI) setOf(TxOrigin.AI, TxOrigin.MANUAL)
+        else setOf(TxOrigin.REGEX, TxOrigin.MANUAL)
 
     // ── Parsing mode (manual regex vs on-device AI) ──────────────────────
 
@@ -105,12 +113,43 @@ class TransactionRepository(
         } catch (_: Exception) {
             false
         }
-
-    /** Wipes the AI database (transactions + scan verdicts); manual data is untouched. */
+    /** Wipes AI SMS rows + scan verdicts; manuals, skips and regex rows are untouched. */
     suspend fun clearAiTransactions() = withContext(Dispatchers.IO) {
-        aiTransactionDao.deleteAll()
-        aiScannedDao.deleteAll()
+        store.deleteTransactionsByOrigin(TxOrigin.AI)
+        store.deleteAllVerdicts()
         _aiScanProgress.value = null
+    }
+
+    /** Detaches snapshot listeners and cancels background work. */
+    fun close() {
+        scope.cancel()
+        store.close()
+    }
+
+    /** Waits for the first snapshot of every collection (cache counts). */
+    suspend fun awaitReady(timeoutMs: Long = 8000): Boolean = store.awaitReady(timeoutMs)
+
+    init {
+        scope.launch {
+            try {
+                store.awaitReady(15000)
+                ensureSeeded()
+                syncManualMirrors()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "repository init refresh failed", e)
+            }
+        }
+    }
+
+    private suspend fun ensureSeeded() {
+        if (store.templates.value.isEmpty()) {
+            runCatching { store.setTemplates(MessageTemplate.defaultTemplates) }
+        }
+        if (store.banks.value.isEmpty()) {
+            runCatching { store.setBanks(BankSender.defaultSenders) }
+        }
     }
 
     // ── Single-message AI rescan ──────────────────────────────────────────
@@ -132,8 +171,9 @@ class TransactionRepository(
             if (_parseMode.value != ParseMode.AI) {
                 return@withContext RescanResult.Failed("Switch to AI parsing mode to re-scan.")
             }
-            val existing = aiTransactionDao.getById(transactionId)
-                ?: return@withContext RescanResult.Failed("Transaction not found.")
+            val existing = store.transactions.value
+                .firstOrNull { it.tx.id == transactionId && it.origin == TxOrigin.AI }
+                ?.tx ?: return@withContext RescanResult.Failed("Transaction not found.")
             if (existing.isManual) {
                 return@withContext RescanResult.Failed("Manual entries have no SMS to re-scan.")
             }
@@ -151,18 +191,22 @@ class TransactionRepository(
                     engine,
                     RawSms(existing.messageId, existing.sender, existing.rawBody, existing.timestamp)
                 ) ?: run {
-                    aiScannedDao.upsert(
-                        AiScannedEntity(
+                    store.setVerdict(
+                        ScanVerdict(
                             existing.messageId, existing.sender, existing.timestamp,
                             existing.rawBody, false
                         )
                     )
                     return@withContext RescanResult.NotTransaction
                 }
-                val updated = parsed.copy(id = existing.id, messageId = existing.messageId)
-                aiTransactionDao.update(AiTransactionEntity.fromDomain(updated))
-                aiScannedDao.upsert(
-                    AiScannedEntity(
+                val updated = parsed.copy(
+                    id = existing.id,
+                    docId = existing.docId,
+                    messageId = existing.messageId
+                )
+                store.setTransaction(updated, TxOrigin.AI)
+                store.setVerdict(
+                    ScanVerdict(
                         existing.messageId, existing.sender, existing.timestamp,
                         existing.rawBody, true
                     )
@@ -175,23 +219,9 @@ class TransactionRepository(
             }
         }
 
-    // Persistent DB DAOs
-    private val pManualDao get() = persistentDb.manualExpenseDao()
-    private val pSkippedDao get() = persistentDb.skippedTransactionDao()
-    private val pTemplateDao get() = persistentDb.messageTemplateDao()
-    private val pBankDao get() = persistentDb.monitoredBankDao()
+    val skippedTransactions: StateFlow<List<SkippedTransaction>> = store.skipped
 
-    private val _skippedTransactions = MutableStateFlow<List<SkippedTransaction>>(fileManager.getSkippedTransactions())
-    val skippedTransactions: StateFlow<List<SkippedTransaction>> = _skippedTransactions.asStateFlow()
-
-    private val _messageTemplates = MutableStateFlow<List<MessageTemplate>>(MessageTemplate.defaultTemplates)
-    val messageTemplates: StateFlow<List<MessageTemplate>> = _messageTemplates.asStateFlow()
-
-    init {
-        CoroutineScope(Dispatchers.IO).launch {
-            refreshFromFiles()
-        }
-    }
+    val messageTemplates: StateFlow<List<MessageTemplate>> = store.templates
 
     /**
      * Processes an incoming real-time SMS from BroadcastReceiver with full deduplication and skip filtering.
@@ -202,7 +232,8 @@ class TransactionRepository(
         body: String,
         timestamp: Long
     ): Boolean = withContext(Dispatchers.IO) {
-        val monitored = bankSenderDao.getMonitoredSendersSync()
+        store.awaitReady()
+        val monitored = store.banks.value.filter { it.isMonitored }
             .map { it.senderId.lowercase() }
             .toSet()
 
@@ -212,20 +243,20 @@ class TransactionRepository(
         }
         if (!isMonitored) return@withContext false
 
-        // Check if this transaction is marked as skipped in persistent DB
-        if (isSkippedInDb(0L, sender, timestamp, body)) {
+        // Check if this transaction is marked as skipped
+        if (isSkipped(store.skipped.value, 0L, sender, timestamp, body)) {
             return@withContext false
         }
 
         return@withContext if (_parseMode.value == ParseMode.AI) {
             processIncomingSmsAi(sender, body, timestamp)
         } else {
-            val enabledTemplates = pTemplateDao.getEnabled().map { it.toDomain() }
+            val enabledTemplates = store.templates.value.filter { it.isEnabled }
             processIncomingSmsManual(sender, body, timestamp, enabledTemplates)
         }
     }
 
-    /** Regex path: parse + insert into the manual database. */
+    /** Regex path: parse + insert into the cloud transactions collection. */
     private suspend fun processIncomingSmsManual(
         sender: String,
         body: String,
@@ -235,7 +266,9 @@ class TransactionRepository(
         val parsed = BankSmsParser.parse(body, sender, enabledTemplates) ?: return false
 
         // Prevent inserting if this transaction is already present
-        val existing = transactionDao.findDuplicate(
+        val docs = docsInOrigins(setOf(TxOrigin.REGEX, TxOrigin.MANUAL))
+        val existing = findDuplicate(
+            docs,
             sender = sender,
             amount = parsed.amount,
             type = parsed.type.name,
@@ -246,20 +279,21 @@ class TransactionRepository(
             return false
         }
 
+        val docId = CloudDocs.smsDocId(timestamp)
         val transaction = parsed.toTransaction(
             messageId = timestamp,
             sender = sender,
             timestamp = timestamp,
             rawBody = body
-        )
-        val insertId = transactionDao.insert(TransactionEntity.fromDomain(transaction))
-        return insertId != -1L
+        ).copy(docId = docId, id = CloudDocs.stableId(docId))
+        store.setTransaction(transaction, TxOrigin.REGEX)
+        return true
     }
 
     /**
-     * AI path: single message to the on-device model, result into the AI
-     * database. No model (or no engine) means the SMS is dropped — it must
-     * NOT fall back to manual parsing, or the two databases would mix.
+     * AI path: single message to the on-device model, result into the cloud.
+     * No model (or no engine) means the SMS is dropped — it must NOT fall
+     * back to manual parsing, or the two pipelines would mix.
      */
     private suspend fun processIncomingSmsAi(
         sender: String,
@@ -276,7 +310,9 @@ class TransactionRepository(
             null
         } ?: return false
 
-        val existing = aiTransactionDao.findDuplicate(
+        val docs = docsInOrigins(setOf(TxOrigin.AI, TxOrigin.MANUAL))
+        val existing = findDuplicate(
+            docs,
             sender = sender,
             amount = parsed.amount,
             type = parsed.type.name,
@@ -285,8 +321,12 @@ class TransactionRepository(
         )
         if (existing != null) return false
 
-        val insertId = aiTransactionDao.insert(AiTransactionEntity.fromDomain(parsed))
-        return insertId != -1L
+        val docId = CloudDocs.smsDocId(parsed.messageId)
+        store.setTransaction(
+            parsed.copy(docId = docId, id = CloudDocs.stableId(docId)),
+            TxOrigin.AI
+        )
+        return true
     }
 
     /** One sync at a time: Dashboard auto-sync and manual rescans share this path. */
@@ -343,27 +383,33 @@ class TransactionRepository(
     }
 
     /**
-     * Scans both SMS messages and the persistent DB manual expenses.
+     * Scans both SMS messages and the cloud manual expenses.
      * Deduplicates against existing transactions and respects skipped transaction records.
      */
     private suspend fun doSyncTransactionsFromSms(): SyncResult = withContext(Dispatchers.IO) {
         try {
-            // 1. Clean up any historical duplicate transactions
-            transactionDao.deleteDuplicates()
+            store.awaitReady()
 
-            // 2. Read message templates from persistent DB
-            val templates = pTemplateDao.getAll().map { it.toDomain() }
-            _messageTemplates.value = templates
+            // 1. Clean up any historical duplicate transactions (visible set)
+            deleteDuplicates(docsInOrigins(visibleOrigins(_parseMode.value)))
 
-            // 3. Refresh and enforce skipped transactions from persistent DB
-            val skippedList = pSkippedDao.getAll().map { it.toDomain() }
-            _skippedTransactions.value = skippedList
+            // 2. Templates (seeded at init; refresh the cached flow)
+            val templates = store.templates.value.ifEmpty {
+                ensureSeeded()
+                MessageTemplate.defaultTemplates
+            }
+
+            // 3. Enforce skipped transactions: remove matching rows from the log
+            val skippedList = store.skipped.value
             for (skipped in skippedList) {
                 ensureActive() // Stop takes effect between rows.
                 if (skipped.originalMessageId != 0L) {
-                    transactionDao.deleteByMessageId(skipped.originalMessageId)
+                    runCatching {
+                        store.deleteTransaction(CloudDocs.smsDocId(skipped.originalMessageId))
+                    }
                 }
-                val dup = transactionDao.findDuplicate(
+                val dup = findDuplicate(
+                    store.transactions.value,
                     sender = skipped.sender,
                     amount = skipped.amount,
                     type = skipped.type.name,
@@ -371,26 +417,24 @@ class TransactionRepository(
                     timestamp = skipped.timestamp
                 )
                 if (dup != null) {
-                    transactionDao.delete(dup)
+                    runCatching { store.deleteTransaction(dup.tx.docId) }
                 }
             }
 
-            // 4. Scan manual expenses from persistent DB
-            syncManualExpensesFromDb()
+            // 4. Mirror manual expenses into the log
+            syncManualMirrors()
 
-            // 5. Synchronize monitored banks from persistent DB to internal Room
-            syncMonitoredBanksFromDb()
-
-            // 6. Scan SMS inbox with freshly loaded templates
-            val monitored = bankSenderDao.getMonitoredSendersSync()
-            if (monitored.isEmpty()) {
+            // 5. Monitored banks (single source now — nothing to synchronize)
+            val monitored = store.banks.value
+            if (monitored.none { it.isMonitored }) {
                 return@withContext SyncResult(0, 0, listOf("No monitored bank senders configured. Please enable banks in Settings."))
             }
 
-            val monitoredSenderIds = monitored.map { it.senderId }.toSet()
+            val monitoredSenderIds = monitored.filter { it.isMonitored }
+                .map { it.senderId }.toSet()
 
             // AI mode never touches the regex pipeline: raw inbox rows go to
-            // the model pool in batches of 20 and land in the AI database.
+            // the model pool in batches of 20 and land in the cloud.
             if (_parseMode.value == ParseMode.AI) {
                 return@withContext syncAiTransactionsFromSms(monitoredSenderIds)
             }
@@ -406,38 +450,37 @@ class TransactionRepository(
             for (transaction in parsedTransactions) {
                 ensureActive() // Stop takes effect between rows.
                 // Skip if user marked this transaction as skipped
-                if (isSkippedInDb(transaction.messageId, transaction.sender, transaction.timestamp, transaction.rawBody)) {
+                if (isSkipped(
+                        store.skipped.value,
+                        transaction.messageId, transaction.sender,
+                        transaction.timestamp, transaction.rawBody
+                    )
+                ) {
                     continue
                 }
 
-                val entity = TransactionEntity.fromDomain(transaction)
-
+                val docId = CloudDocs.smsDocId(transaction.messageId)
                 // Check 1: Already exists with this exact messageId?
-                val existingByMsgId = transactionDao.getByMessageId(entity.messageId)
-                if (existingByMsgId != null) {
+                if (store.transactions.value.any { it.tx.docId == docId }) {
                     continue
                 }
 
                 // Check 2: Was it already inserted by real-time receiver (which used timestamp as messageId)?
-                val existingDuplicate = transactionDao.findDuplicate(
-                    sender = entity.sender,
-                    amount = entity.amount,
-                    type = entity.type,
-                    rawBody = entity.rawBody,
-                    timestamp = entity.timestamp
+                // Receiver rows win: an inbox row matching one is the same SMS.
+                val existingDuplicate = findDuplicate(
+                    docsInOrigins(setOf(TxOrigin.REGEX, TxOrigin.MANUAL)),
+                    sender = transaction.sender,
+                    amount = transaction.amount,
+                    type = transaction.type.name,
+                    rawBody = transaction.rawBody,
+                    timestamp = transaction.timestamp
                 )
-
-                if (existingDuplicate != null) {
-                    // Update existing record to match the permanent inbox messageId
-                    if (existingDuplicate.messageId != entity.messageId) {
-                        transactionDao.update(existingDuplicate.copy(messageId = entity.messageId))
-                    }
-                } else {
-                    // Brand new transaction
-                    val id = transactionDao.insert(entity)
-                    if (id != -1L) {
-                        newlyImported++
-                    }
+                if (existingDuplicate == null) {
+                    store.setTransaction(
+                        transaction.copy(docId = docId, id = CloudDocs.stableId(docId)),
+                        TxOrigin.REGEX
+                    )
+                    newlyImported++
                 }
             }
 
@@ -456,7 +499,7 @@ class TransactionRepository(
 
     /**
      * AI bulk scan: raw inbox rows -> model (20 per call, each batch on its
-     * own private engine) -> AI database. Rows already stored or skipped are
+     * own private engine) -> cloud. Rows already stored or skipped are
      * filtered BEFORE inference so no model time is wasted on them. One
      * failing batch never aborts the run.
      *
@@ -478,7 +521,7 @@ class TransactionRepository(
         val myGen = scanGeneration.get()
         fun sessionStopped() = myGen != scanGeneration.get()
         try {
-            aiTransactionDao.deleteDuplicates()
+            deleteDuplicates(docsInOrigins(setOf(TxOrigin.AI, TxOrigin.MANUAL)))
 
             // Monitored senders only (readRawBankMessages filters by them).
             val raw = smsReader.readRawBankMessages(monitoredSenderIds)
@@ -488,16 +531,17 @@ class TransactionRepository(
 
             // Attribute every row up front: no-currency / duplicate / skipped /
             // already-judged never cost inference; only the rest goes to the model.
+            val storedIds = store.transactions.value.map { it.tx.messageId }.toSet()
+            val skippedNow = store.skipped.value
+            val verdictsNow = store.verdicts.value
             val fresh = mutableListOf<RawSms>()
             for (sms in raw) {
                 when {
                     !AiSmsParser.hasMoneyHint(sms.body) -> tracker.markNoCurrency(sms)
-                    aiTransactionDao.getByMessageId(sms.messageId) != null ->
-                        tracker.markDuplicate(sms)
-                    isSkippedInDb(sms.messageId, sms.sender, sms.timestamp, sms.body) ->
+                    sms.messageId in storedIds -> tracker.markDuplicate(sms)
+                    isSkipped(skippedNow, sms.messageId, sms.sender, sms.timestamp, sms.body) ->
                         tracker.markSkipped(sms)
-                    aiScannedDao.getByMessageId(sms.messageId) != null ->
-                        tracker.markAlreadyScanned(sms)
+                    verdictsNow.containsKey(sms.messageId) -> tracker.markAlreadyScanned(sms)
                     else -> fresh.add(sms)
                 }
             }
@@ -600,44 +644,43 @@ class TransactionRepository(
                 Log.d(TAG, "Batch $batchNumber discarded (scan stopped)")
                 return
             }
+            val skippedNow = store.skipped.value
             val inserted = mutableListOf<Transaction>()
             val parsedIds = parsed.map { it.messageId }.toSet()
+            val verdictBatch = mutableListOf<ScanVerdict>()
             for (tx in parsed) {
-                if (isSkippedInDb(tx.messageId, tx.sender, tx.timestamp, tx.rawBody)) {
+                if (isSkipped(skippedNow, tx.messageId, tx.sender, tx.timestamp, tx.rawBody)) {
                     tracker.markSkipped(
                         RawSms(tx.messageId, tx.sender, tx.rawBody, tx.timestamp)
                     )
                 } else {
-                    val dup = aiTransactionDao.findDuplicate(
+                    val dup = findDuplicate(
+                        docsInOrigins(setOf(TxOrigin.AI, TxOrigin.MANUAL)),
                         sender = tx.sender,
                         amount = tx.amount,
                         type = tx.type.name,
                         rawBody = tx.rawBody,
                         timestamp = tx.timestamp
                     )
-                    if (dup == null &&
-                        aiTransactionDao.insert(AiTransactionEntity.fromDomain(tx)) != -1L
-                    ) {
-                        inserted.add(tx)
+                    if (dup == null) {
+                        val docId = CloudDocs.smsDocId(tx.messageId)
+                        inserted.add(tx.copy(docId = docId, id = CloudDocs.stableId(docId)))
                     }
                 }
                 // Verdict recorded per row AFTER handling, so every row is
                 // consistent (both verdict+insert present, or neither).
-                aiScannedDao.upsert(
-                    AiScannedEntity(
-                        tx.messageId, tx.sender, tx.timestamp,
-                        tx.rawBody, true
-                    )
+                verdictBatch.add(
+                    ScanVerdict(tx.messageId, tx.sender, tx.timestamp, tx.rawBody, true)
                 )
             }
             batch.filter { it.messageId !in parsedIds }.forEach { row ->
-                aiScannedDao.upsert(
-                    AiScannedEntity(
-                        row.messageId, row.sender, row.timestamp,
-                        row.body, false
-                    )
+                verdictBatch.add(
+                    ScanVerdict(row.messageId, row.sender, row.timestamp, row.body, false)
                 )
             }
+            // One batched write per batch: kinds to Firestore write quotas.
+            if (inserted.isNotEmpty()) store.setTransactions(inserted, TxOrigin.AI)
+            if (verdictBatch.isNotEmpty()) store.setVerdicts(verdictBatch)
             tracker.markBatchDone(batch, inserted)
         } catch (e: Exception) {
             tracker.addError("Batch $batchNumber: ${e.message}")
@@ -656,250 +699,203 @@ class TransactionRepository(
     }
 
     /**
-     * Synchronizes manual expenses from persistent DB into internal Room.
+     * Mirrors cloud manual expenses into the log (origin=manual, visible in
+     * both modes). Skipped manuals stay skipped: the ManualExpense record is
+     * kept (so unskip restores it) but no mirror doc is written.
      */
-    private suspend fun syncManualExpensesFromDb() {
-        val manualExpenses = pManualDao.getAll().map { it.toDomain() }
-        val currentFileIds = manualExpenses.map { it.id }.toSet()
+    private suspend fun syncManualMirrors() {
+        val manualExpenses = store.manualExpenses.value
+        val currentIds = manualExpenses.map { it.id }.toSet()
+        val skippedNow = store.skipped.value
 
-        // Remove any manual entries from Room that were deleted from persistent DB
-        val existingDbManualIds = transactionDao.getAllManualIds()
-        for (dbId in existingDbManualIds) {
-            if (!currentFileIds.contains(dbId)) {
-                transactionDao.deleteByManualId(dbId)
-            }
-        }
-        // Same pruning for the AI database mirror.
-        val existingAiManualIds = aiTransactionDao.getAllManualIds()
-        for (dbId in existingAiManualIds) {
-            if (!currentFileIds.contains(dbId)) {
-                aiTransactionDao.deleteByManualId(dbId)
-            }
+        // Remove mirrors whose manual source is gone.
+        val staleMirrors = store.transactions.value
+            .filter { it.origin == TxOrigin.MANUAL && it.tx.manualId !in currentIds }
+            .map { it.tx.docId }
+        if (staleMirrors.isNotEmpty()) {
+            runCatching { store.deleteTransactions(staleMirrors) }
         }
 
-        // Upsert all manual expenses from persistent DB
         for (expense in manualExpenses) {
             // Stop takes effect between rows (also aborts stale refreshes).
             currentCoroutineContext().ensureActive()
-            val transaction = expense.toTransaction()
-            // Skipped manuals stay skipped: the ManualExpense record is kept
-            // (so unskip restores it) but nothing is mirrored to the query DBs.
-            // Matching works via the deterministic negative messageId.
-            if (isSkippedInDb(
+            val base = expense.toTransaction()
+            val docId = CloudDocs.manualDocId(expense.id)
+            val transaction = base.copy(docId = docId, id = CloudDocs.stableId(docId))
+            if (isSkipped(
+                    skippedNow,
                     transaction.messageId, transaction.sender,
                     transaction.timestamp, transaction.rawBody
                 )
             ) {
-                transactionDao.deleteByManualId(expense.id)
-                aiTransactionDao.deleteByManualId(expense.id)
+                runCatching { store.deleteTransaction(docId) }
                 continue
             }
-            val existing = transactionDao.getByManualId(expense.id)
-            if (existing != null) {
-                val updated = TransactionEntity.fromDomain(transaction).copy(id = existing.id)
-                transactionDao.update(updated)
-            } else {
-                transactionDao.insert(TransactionEntity.fromDomain(transaction))
-            }
-            // Mirror into the AI database so manual entries stay visible in AI mode.
-            val aiExisting = aiTransactionDao.getByManualId(expense.id)
-            val aiEntity = AiTransactionEntity.fromDomain(transaction)
-            if (aiExisting != null) {
-                aiTransactionDao.update(aiEntity.copy(id = aiExisting.id))
-            } else {
-                aiTransactionDao.insert(aiEntity)
-            }
+            runCatching { store.setTransaction(transaction, TxOrigin.MANUAL) }
         }
     }
 
+    // ── In-memory query engine (replaces the Room SQL) ────────────────────
+
+    private fun docsInOrigins(origins: Set<String>): List<TxDoc> =
+        store.transactions.value.filter { it.origin in origins }
+
     /**
-     * Checks if a transaction is skipped using the persistent DB.
+     * Same predicate as the old findDuplicate query: within ±2 min AND
+     * (same body OR (same amount AND same type)).
      */
-    private suspend fun isSkippedInDb(
+    private fun findDuplicate(
+        docs: List<TxDoc>,
+        sender: String,
+        amount: Double,
+        type: String,
+        rawBody: String,
+        timestamp: Long
+    ): TxDoc? = docs.firstOrNull { doc ->
+        val tx = doc.tx
+        tx.sender == sender &&
+            kotlin.math.abs(tx.timestamp - timestamp) < 120000 &&
+            (tx.rawBody == rawBody || (tx.amount == amount && tx.type.name == type))
+    }
+
+    /**
+     * Same grouping as the old deleteDuplicates: sender + amount + body +
+     * minute bucket. Keeps the lowest id, deletes the rest.
+     */
+    private suspend fun deleteDuplicates(docs: List<TxDoc>) {
+        val dupIds = docs.groupBy {
+            "${it.tx.sender}|${it.tx.amount}|${it.tx.rawBody}|${it.tx.timestamp / 60000}"
+        }.values.filter { it.size > 1 }
+            .flatMap { group -> group.sortedBy { it.tx.id }.drop(1) }
+            .map { it.tx.docId }
+        if (dupIds.isNotEmpty()) {
+            runCatching { store.deleteTransactions(dupIds) }
+        }
+    }
+
+    /** Same three-rule predicate the persistent-DB skip check used. */
+    private fun isSkipped(
+        skippedList: List<SkippedTransaction>,
         messageId: Long,
         sender: String,
         timestamp: Long,
         rawBody: String
     ): Boolean {
-        val skippedList = pSkippedDao.getAll().map { it.toDomain() }
         if (skippedList.isEmpty()) return false
-
         return skippedList.any { skipped ->
             (messageId != 0L && skipped.originalMessageId == messageId) ||
             (rawBody.isNotBlank() && skipped.rawBody.isNotBlank() && skipped.sender == sender && skipped.rawBody == rawBody) ||
-            (skipped.sender == sender && Math.abs(skipped.timestamp - timestamp) < 60000 &&
-             rawBody.contains(skipped.amount.toInt().toString()))
+            (skipped.sender == sender && kotlin.math.abs(skipped.timestamp - timestamp) < 60000 &&
+                rawBody.contains(skipped.amount.toInt().toString()))
         }
     }
+
+    private fun TxDoc.isVisible(mode: ParseMode): Boolean =
+        origin in visibleOrigins(mode)
 
     // ── Manual Expenses API ───────────────────────────────────────────────
 
     suspend fun addManualExpense(expense: ManualExpense) = withContext(Dispatchers.IO) {
-        // Write to persistent DB
-        pManualDao.upsert(ManualExpenseEntity.fromDomain(expense))
-        // Mirror to JSON backup
-        exportManualExpensesToJson()
-        // Sync to internal Room for queries (both databases: visible in either mode)
+        store.setManual(expense)
+        val docId = CloudDocs.manualDocId(expense.id)
         val transaction = expense.toTransaction()
-        transactionDao.insert(TransactionEntity.fromDomain(transaction))
-        aiTransactionDao.insert(AiTransactionEntity.fromDomain(transaction))
+            .copy(docId = docId, id = CloudDocs.stableId(docId))
+        store.setTransaction(transaction, TxOrigin.MANUAL)
     }
 
     suspend fun updateManualExpense(expense: ManualExpense) = withContext(Dispatchers.IO) {
-        pManualDao.upsert(ManualExpenseEntity.fromDomain(expense))
-        exportManualExpensesToJson()
-        val existing = transactionDao.getByManualId(expense.id)
+        store.setManual(expense)
+        val docId = CloudDocs.manualDocId(expense.id)
         val transaction = expense.toTransaction()
-        if (existing != null) {
-            val updated = TransactionEntity.fromDomain(transaction).copy(id = existing.id)
-            transactionDao.update(updated)
-        } else {
-            transactionDao.insert(TransactionEntity.fromDomain(transaction))
-        }
-        val aiExisting = aiTransactionDao.getByManualId(expense.id)
-        val aiEntity = AiTransactionEntity.fromDomain(transaction)
-        if (aiExisting != null) {
-            aiTransactionDao.update(aiEntity.copy(id = aiExisting.id))
-        } else {
-            aiTransactionDao.insert(aiEntity)
-        }
+            .copy(docId = docId, id = CloudDocs.stableId(docId))
+        store.setTransaction(transaction, TxOrigin.MANUAL)
     }
 
     suspend fun deleteManualExpense(manualId: String) = withContext(Dispatchers.IO) {
-        pManualDao.deleteById(manualId)
-        exportManualExpensesToJson()
-        transactionDao.deleteByManualId(manualId)
-        aiTransactionDao.deleteByManualId(manualId)
+        store.deleteManual(manualId)
+        runCatching { store.deleteTransaction(CloudDocs.manualDocId(manualId)) }
     }
 
     suspend fun getManualExpenses(): List<ManualExpense> = withContext(Dispatchers.IO) {
-        pManualDao.getAll().map { it.toDomain() }
+        store.awaitReady()
+        store.manualExpenses.value
     }
 
     // ── Skipped Transactions API ──────────────────────────────────────────
 
-    suspend fun skipTransaction(transaction: Transaction, reason: String = "User skipped") = withContext(Dispatchers.IO) {
-        val skipped = SkippedTransaction.fromTransaction(transaction, reason)
-        pSkippedDao.insert(SkippedTransactionEntity.fromDomain(skipped))
-        exportSkippedToJson()
-        _skippedTransactions.value = pSkippedDao.getAll().map { it.toDomain() }
-
-        // Skips apply to both databases: the skip record lives in the shared
-        // persistent DB and both sync paths honor it.
-        if (transaction.messageId != 0L) {
-            transactionDao.deleteByMessageId(transaction.messageId)
-            aiTransactionDao.deleteByMessageId(transaction.messageId)
+    suspend fun skipTransaction(transaction: Transaction, reason: String = "User skipped") =
+        withContext(Dispatchers.IO) {
+            val skipped = SkippedTransaction.fromTransaction(transaction, reason)
+            store.addSkipped(skipped)
+            // Single collection now: deleting the doc removes it everywhere.
+            val docId = transaction.docId.ifBlank {
+                CloudDocs.smsDocId(transaction.messageId)
+            }
+            runCatching { store.deleteTransaction(docId) }
         }
-        transactionDao.deleteById(transaction.id)
-        aiTransactionDao.deleteById(transaction.id)
-    }
 
     suspend fun unskipTransaction(skipped: SkippedTransaction) = withContext(Dispatchers.IO) {
-        // Remove from persistent DB using matching criteria
+        store.deleteSkippedWhere { s ->
+            (skipped.originalMessageId != 0L && s.originalMessageId == skipped.originalMessageId) ||
+            (skipped.rawBody.isNotBlank() && s.sender == skipped.sender && s.rawBody == skipped.rawBody) ||
+            (s.sender == skipped.sender && s.amount == skipped.amount && s.timestamp == skipped.timestamp)
+        }
+        // Forget its scan verdict too, so the next AI scan re-judges it.
         if (skipped.originalMessageId != 0L) {
-            pSkippedDao.deleteByMessageId(skipped.originalMessageId)
-            // Forget its scan verdict too, so the next AI scan re-judges it.
-            aiScannedDao.deleteByMessageId(skipped.originalMessageId)
+            runCatching { store.deleteVerdict(skipped.originalMessageId) }
         }
         if (skipped.rawBody.isNotBlank()) {
-            pSkippedDao.deleteBySenderAndBody(skipped.sender, skipped.rawBody)
-            aiScannedDao.deleteBySenderAndBody(skipped.sender, skipped.rawBody)
+            runCatching { store.deleteVerdictsBySenderAndBody(skipped.sender, skipped.rawBody) }
         }
-        pSkippedDao.deleteBySenderAmountTimestamp(skipped.sender, skipped.amount, skipped.timestamp)
-
-        exportSkippedToJson()
-        _skippedTransactions.value = pSkippedDao.getAll().map { it.toDomain() }
         // Re-sync inbox so this transaction is immediately restored to active log
         syncTransactionsFromSms()
     }
 
     suspend fun getSkippedTransactions(): List<SkippedTransaction> = withContext(Dispatchers.IO) {
-        pSkippedDao.getAll().map { it.toDomain() }
+        store.awaitReady()
+        store.skipped.value
     }
 
     // ── Message Templates API ─────────────────────────────────────────────
 
     fun getMessageTemplates(): List<MessageTemplate> {
-        return _messageTemplates.value.ifEmpty { MessageTemplate.defaultTemplates }
+        return store.templates.value.ifEmpty { MessageTemplate.defaultTemplates }
     }
 
     suspend fun loadMessageTemplates(): List<MessageTemplate> = withContext(Dispatchers.IO) {
-        val templates = pTemplateDao.getAll().map { it.toDomain() }
+        store.awaitReady()
+        val templates = store.templates.value
         if (templates.isEmpty()) {
-            // Seed defaults if empty
             val defaults = MessageTemplate.defaultTemplates
-            pTemplateDao.upsertAll(defaults.map { MessageTemplateEntity.fromDomain(it) })
-            _messageTemplates.value = defaults
-            exportTemplatesToJson()
+            runCatching { store.setTemplates(defaults) }
             defaults
         } else {
-            _messageTemplates.value = templates
             templates
         }
     }
 
     suspend fun saveMessageTemplate(template: MessageTemplate) = withContext(Dispatchers.IO) {
-        pTemplateDao.upsert(MessageTemplateEntity.fromDomain(template))
-        exportTemplatesToJson()
-        _messageTemplates.value = pTemplateDao.getAll().map { it.toDomain() }
+        store.setTemplate(template)
     }
 
     suspend fun deleteMessageTemplate(id: String) = withContext(Dispatchers.IO) {
-        pTemplateDao.deleteById(id)
-        exportTemplatesToJson()
-        _messageTemplates.value = pTemplateDao.getAll().map { it.toDomain() }
+        store.deleteTemplate(id)
     }
 
-    suspend fun toggleMessageTemplate(id: String, isEnabled: Boolean) = withContext(Dispatchers.IO) {
-        pTemplateDao.toggleEnabled(id, isEnabled)
-        exportTemplatesToJson()
-        _messageTemplates.value = pTemplateDao.getAll().map { it.toDomain() }
-    }
+    suspend fun toggleMessageTemplate(id: String, isEnabled: Boolean) =
+        withContext(Dispatchers.IO) {
+            val existing = store.templates.value.firstOrNull { it.id == id } ?: return@withContext
+            store.setTemplate(existing.copy(isEnabled = isEnabled))
+        }
 
     // ── Monitored Banks API ───────────────────────────────────────────────
 
-    /**
-     * Synchronizes monitored banks from persistent DB to internal Room bank_senders table.
-     */
-    private suspend fun syncMonitoredBanksFromDb() {
-        try {
-            val persistentBanks = pBankDao.getAll().map { it.toDomain() }
-            val persistentSenderIds = persistentBanks.map { it.senderId.lowercase() }.toSet()
-
-            // Remove senders from Room that are no longer in persistent DB
-            val allDbSenders = bankSenderDao.getAllSendersSync()
-            for (dbSender in allDbSenders) {
-                if (!persistentSenderIds.contains(dbSender.senderId.lowercase())) {
-                    bankSenderDao.delete(dbSender)
-                }
-            }
-
-            // Upsert all senders from persistent DB into internal Room
-            for (bank in persistentBanks) {
-                val existing = bankSenderDao.getBySenderId(bank.senderId)
-                if (existing == null) {
-                    bankSenderDao.insert(BankSenderEntity.fromDomain(bank))
-                } else {
-                    bankSenderDao.update(
-                        existing.copy(
-                            displayName = bank.displayName,
-                            isMonitored = bank.isMonitored,
-                            customRegex = bank.customRegex
-                        )
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            System.err.println("Error syncing monitored banks from DB: ${e.message}")
-        }
-    }
-
     suspend fun getMonitoredBanks(): List<BankSender> = withContext(Dispatchers.IO) {
-        val banks = pBankDao.getAll().map { it.toDomain() }
+        store.awaitReady()
+        val banks = store.banks.value
         if (banks.isEmpty()) {
             val defaults = BankSender.defaultSenders
-            pBankDao.upsertAll(defaults.map { MonitoredBankEntity.fromDomain(it) })
-            exportBanksToJson()
+            runCatching { store.setBanks(defaults) }
             defaults
         } else {
             banks
@@ -915,14 +911,14 @@ class TransactionRepository(
 
     /** Full history (newest first) for the assistant's system prompt. Follows the active mode. */
     suspend fun getAllTransactions(): List<Transaction> = withContext(Dispatchers.IO) {
-        if (_parseMode.value == ParseMode.AI) {
-            aiTransactionDao.getAllSync().map { it.toDomain() }
-        } else {
-            transactionDao.getAllTransactionsFlow().first().map { it.toDomain() }
-        }
+        val mode = _parseMode.value
+        store.transactions.value
+            .filter { it.isVisible(mode) }
+            .sortedByDescending { it.tx.timestamp }
+            .map { it.tx }
     }
 
-    /** Filtered log. Follows the active mode: AI database in AI mode, manual otherwise. */
+    /** Filtered log. Follows the active mode. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun getFilteredTransactions(
         startTime: Long,
@@ -933,98 +929,80 @@ class TransactionRepository(
         searchQuery: String? = null,
         manualOnly: Boolean = false
     ): Flow<List<Transaction>> {
-        val typeName = if (type == TransactionType.UNKNOWN || type == null) null else type.name
+        val wantExpenseOnly = type == TransactionType.EXPENSE
+        val wantIncomeOnly = type == TransactionType.INCOME
         val senderName = if (sender.isNullOrBlank() || sender == "ALL") null else sender
         val categoryName = if (category.isNullOrBlank() || category == "ALL") null else category
         val query = if (searchQuery.isNullOrBlank()) null else searchQuery.trim()
-        return parseMode.flatMapLatest { mode ->
-            if (mode == ParseMode.AI) {
-                aiTransactionDao.getFilteredTransactionsFlow(
-                    startTime, endTime, typeName, senderName, categoryName, query, manualOnly
-                ).map { list -> list.map { it.toDomain() } }
-            } else {
-                transactionDao.getFilteredTransactionsFlow(
-                    startTime, endTime, typeName, senderName, categoryName, query, manualOnly
-                ).map { list -> list.map { it.toDomain() } }
-            }
+        return combine(parseMode, store.transactions) { mode, docs ->
+            docs.asSequence()
+                .filter { it.isVisible(mode) }
+                .map { it.tx }
+                .filter { it.timestamp in startTime..endTime }
+                .filter {
+                    when {
+                        wantExpenseOnly -> it.type == TransactionType.EXPENSE
+                        wantIncomeOnly -> it.type == TransactionType.INCOME
+                        type == null || type == TransactionType.UNKNOWN -> true
+                        else -> it.type == type
+                    }
+                }
+                .filter { senderName == null || it.sender == senderName }
+                .filter { categoryName == null || it.category == categoryName }
+                .filter { tx ->
+                    query == null || (tx.merchant?.contains(query, ignoreCase = true) == true) ||
+                        tx.rawBody.contains(query, ignoreCase = true)
+                }
+                .filter { !manualOnly || it.isManual }
+                .sortedByDescending { it.timestamp }
+                .toList()
         }
     }
 
     /** Summary dashboard. Follows the active mode. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun getSummaryReport(startTime: Long, endTime: Long): Flow<SummaryReport> {
-        return parseMode.flatMapLatest { mode ->
-            if (mode == ParseMode.AI) {
-                combineSummaryReport(
-                    aiTransactionDao.getTotalExpenseFlow(startTime, endTime),
-                    aiTransactionDao.getTotalIncomeFlow(startTime, endTime),
-                    aiTransactionDao.getBankExpenseSummaryFlow(startTime, endTime),
-                    aiTransactionDao.getCategoryExpenseSummaryFlow(startTime, endTime),
-                    aiTransactionDao.getMonthlyTrendsFlow()
-                )
-            } else {
-                combineSummaryReport(
-                    transactionDao.getTotalExpenseFlow(startTime, endTime),
-                    transactionDao.getTotalIncomeFlow(startTime, endTime),
-                    transactionDao.getBankExpenseSummaryFlow(startTime, endTime),
-                    transactionDao.getCategoryExpenseSummaryFlow(startTime, endTime),
-                    transactionDao.getMonthlyTrendsFlow()
-                )
-            }
-        }
-    }
+        return combine(parseMode, store.transactions) { mode, docs ->
+            val visible = docs.filter { it.isVisible(mode) }.map { it.tx }
+            val ranged = visible.filter { it.timestamp in startTime..endTime }
+            val totalExp = ranged.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+            val totalInc = ranged.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
 
-    private fun combineSummaryReport(
-        totalExpenseFlow: Flow<Double>,
-        totalIncomeFlow: Flow<Double>,
-        bankSummaryFlow: Flow<List<BankExpenseDbSummary>>,
-        categorySummaryFlow: Flow<List<CategoryDbSummary>>,
-        monthlyTrendFlow: Flow<List<MonthlyDbTrend>>
-    ): Flow<SummaryReport> {
-        return combine(
-            totalExpenseFlow,
-            totalIncomeFlow,
-            bankSummaryFlow,
-            categorySummaryFlow,
-            monthlyTrendFlow
-        ) { expense, income, banks, categories, trends ->
-            val totalExp = expense ?: 0.0
-            val totalInc = income ?: 0.0
-            val net = totalInc - totalExp
-
-            val bankShares = banks.map {
+            val bankShares = ranged.groupBy { it.sender }.map { (sender, txs) ->
                 BankExpenseShare(
-                    sender = it.sender,
-                    totalExpense = it.totalExpense ?: 0.0,
-                    totalIncome = it.totalIncome ?: 0.0,
-                    transactionCount = it.transactionCount
+                    sender = sender,
+                    totalExpense = txs.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount },
+                    totalIncome = txs.filter { it.type == TransactionType.INCOME }.sumOf { it.amount },
+                    transactionCount = txs.size
                 )
-            }
+            }.sortedByDescending { it.totalExpense }
 
-            val categoryShares = categories.map {
-                val catAmount = it.totalAmount ?: 0.0
-                val pct = if (totalExp > 0) ((catAmount / totalExp) * 100).toFloat() else 0f
-                CategoryShare(
-                    category = it.category,
-                    totalAmount = catAmount,
-                    count = it.count,
-                    percentage = pct
-                )
-            }
+            val categoryShares = ranged.filter { it.type == TransactionType.EXPENSE }
+                .groupBy { it.category }.map { (category, txs) ->
+                    val catAmount = txs.sumOf { it.amount }
+                    val pct = if (totalExp > 0) ((catAmount / totalExp) * 100).toFloat() else 0f
+                    CategoryShare(
+                        category = category,
+                        totalAmount = catAmount,
+                        count = txs.size,
+                        percentage = pct
+                    )
+                }.sortedByDescending { it.totalAmount }
 
-            val monthlyTrends = trends.map {
-                MonthlyTrend(
-                    yearMonth = it.yearMonth,
-                    monthLabel = formatYearMonth(it.yearMonth),
-                    totalExpense = it.totalExpense ?: 0.0,
-                    totalIncome = it.totalIncome ?: 0.0
-                )
-            }
+            val monthlyTrends = visible.groupBy { yearMonthOf(it.timestamp) }
+                .map { (ym, txs) ->
+                    MonthlyTrend(
+                        yearMonth = ym,
+                        monthLabel = formatYearMonth(ym),
+                        totalExpense = txs.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount },
+                        totalIncome = txs.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
+                    )
+                }.sortedBy { it.yearMonth }
 
             SummaryReport(
                 totalExpense = totalExp,
                 totalIncome = totalInc,
-                netSavings = net,
+                netSavings = totalInc - totalExp,
                 totalTransactions = bankShares.sumOf { it.transactionCount },
                 bankShares = bankShares,
                 categoryShares = categoryShares,
@@ -1034,167 +1012,103 @@ class TransactionRepository(
     }
 
     fun getSendersWithStats(): Flow<List<BankSender>> {
-        return bankSenderDao.getSendersWithStatsFlow().map { list ->
-            list.map {
-                BankSender(
-                    senderId = it.senderId,
-                    displayName = it.displayName,
-                    isMonitored = it.isMonitored,
-                    customRegex = it.customRegex,
-                    totalTransactionsCount = it.totalTransactionsCount,
-                    lastTransactionTime = it.lastTransactionTime
+        return combine(parseMode, store.banks, store.transactions) { mode, banks, docs ->
+            val visible = docs.filter { it.isVisible(mode) }.map { it.tx }
+            banks.map { bank ->
+                val mine = visible.filter { it.sender == bank.senderId }
+                bank.copy(
+                    totalTransactionsCount = mine.size,
+                    lastTransactionTime = mine.maxOfOrNull { it.timestamp }
                 )
-            }
+            }.sortedBy { it.senderId }
         }
     }
 
-    suspend fun setSenderMonitored(senderId: String, isMonitored: Boolean) = withContext(Dispatchers.IO) {
-        bankSenderDao.setMonitored(senderId, isMonitored)
-        pBankDao.toggleMonitored(senderId, isMonitored)
-        exportBanksToJson()
-    }
+    suspend fun setSenderMonitored(senderId: String, isMonitored: Boolean) =
+        withContext(Dispatchers.IO) {
+            val existing = store.banks.value.firstOrNull { it.senderId == senderId }
+                ?: return@withContext
+            store.setBank(existing.copy(isMonitored = isMonitored))
+        }
 
     suspend fun addCustomSender(sender: BankSender) = withContext(Dispatchers.IO) {
-        bankSenderDao.insert(BankSenderEntity.fromDomain(sender))
-        pBankDao.upsert(MonitoredBankEntity.fromDomain(sender))
-        exportBanksToJson()
+        store.setBank(sender)
     }
 
-    suspend fun updateSender(oldSenderId: String, updated: BankSender) = withContext(Dispatchers.IO) {
-        if (!oldSenderId.equals(updated.senderId, ignoreCase = true)) {
-            val oldEntity = bankSenderDao.getBySenderId(oldSenderId)
-            if (oldEntity != null) {
-                bankSenderDao.delete(oldEntity)
+    suspend fun updateSender(oldSenderId: String, updated: BankSender) =
+        withContext(Dispatchers.IO) {
+            if (!oldSenderId.equals(updated.senderId, ignoreCase = true)) {
+                runCatching { store.deleteBank(oldSenderId) }
             }
-            bankSenderDao.insert(BankSenderEntity.fromDomain(updated))
-            pBankDao.deleteBySenderId(oldSenderId)
-        } else {
-            bankSenderDao.update(BankSenderEntity.fromDomain(updated))
+            store.setBank(updated)
         }
-        pBankDao.upsert(MonitoredBankEntity.fromDomain(updated))
-        exportBanksToJson()
-    }
 
     suspend fun deleteSender(sender: BankSender) = withContext(Dispatchers.IO) {
-        val entity = bankSenderDao.getBySenderId(sender.senderId)
-        if (entity != null) {
-            bankSenderDao.delete(entity)
-        }
-        pBankDao.deleteBySenderId(sender.senderId)
-        exportBanksToJson()
+        runCatching { store.deleteBank(sender.senderId) }
     }
 
-    fun getStorageDirectoryPath(): String = fileManager.getStorageDirectoryPath()
+    // ── Legacy file info (local Masari folder stays on disk until cleanup) ──
 
-    fun isPublicStorageActive(): Boolean = fileManager.isPublicStorageActive()
+    fun getStorageDirectoryPath(): String = ""
+    fun isPublicStorageActive(): Boolean = false
+    fun getPersistentDbPath(): String = "Cloud Firestore"
 
-    fun getPersistentDbPath(): String {
-        return try {
-            persistentDb.openHelper.readableDatabase.path ?: "unknown"
-        } catch (_: Exception) {
-            "unknown"
-        }
-    }
-
+    /**
+     * Full account reset: wipes every cloud collection for this user and
+     * re-seeds templates + banks. Mirrors the old "clear files" behavior.
+     */
     suspend fun clearAllPersistenceFiles() = withContext(Dispatchers.IO) {
-        // Clear persistent DB tables
-        pManualDao.deleteAll()
-        pSkippedDao.deleteAll()
-        pTemplateDao.deleteAll()
-        pBankDao.deleteAll()
-
-        // Clear JSON backup files
-        fileManager.clearAllFiles()
-
-        _skippedTransactions.value = emptyList()
-
-        // Re-seed defaults
-        val defaultTemplates = MessageTemplate.defaultTemplates
-        pTemplateDao.upsertAll(defaultTemplates.map { MessageTemplateEntity.fromDomain(it) })
-        _messageTemplates.value = defaultTemplates
-
-        val defaultBanks = BankSender.defaultSenders
-        pBankDao.upsertAll(defaultBanks.map { MonitoredBankEntity.fromDomain(it) })
-
-        // Sync defaults to internal Room
-        syncMonitoredBanksFromDb()
+        runCatching { store.deleteAllTransactions() }
+        runCatching { store.deleteAllManuals() }
+        runCatching { store.deleteAllSkipped() }
+        runCatching { store.deleteAllTemplates() }
+        runCatching { store.deleteAllBanks() }
+        runCatching { store.deleteAllVerdicts() }
+        _aiScanProgress.value = null
+        ensureSeeded()
     }
 
     /**
-     * Refreshes cached state from persistent DB. Called on tab switches, etc.
+     * Refreshes derived state. Snapshots update live; this re-seeds empty
+     * collections and re-mirrors manuals (tab switches, etc.).
      */
     suspend fun refreshFromFiles() = withContext(Dispatchers.IO) {
-        val templates = pTemplateDao.getAll().map { it.toDomain() }
-        _messageTemplates.value = templates.ifEmpty { MessageTemplate.defaultTemplates }
-        val skipped = pSkippedDao.getAll().map { it.toDomain() }
-        _skippedTransactions.value = skipped
-        syncManualExpensesFromDb()
-        syncMonitoredBanksFromDb()
+        ensureSeeded()
+        syncManualMirrors()
     }
 
     /** Category edits and deletes act on the visible (active-mode) database. */
     suspend fun updateTransactionCategory(transactionId: Long, newCategory: String) {
-        if (_parseMode.value == ParseMode.AI) {
-            val existing = aiTransactionDao.getById(transactionId) ?: return
-            aiTransactionDao.update(existing.copy(category = newCategory))
-        } else {
-            val existing = transactionDao.getById(transactionId) ?: return
-            transactionDao.update(existing.copy(category = newCategory))
-        }
+        val doc = store.transactions.value
+            .firstOrNull { it.tx.id == transactionId && it.isVisible(_parseMode.value) }
+            ?: return
+        runCatching { store.setTransaction(doc.tx.copy(category = newCategory), doc.origin) }
     }
 
     suspend fun deleteTransaction(transactionId: Long) {
-        if (_parseMode.value == ParseMode.AI) {
-            aiTransactionDao.deleteById(transactionId)
-        } else {
-            transactionDao.deleteById(transactionId)
-        }
+        val doc = store.transactions.value
+            .firstOrNull { it.tx.id == transactionId && it.isVisible(_parseMode.value) }
+            ?: return
+        runCatching { store.deleteTransaction(doc.tx.docId) }
     }
 
     suspend fun deleteAllTransactions() {
-        if (_parseMode.value == ParseMode.AI) {
-            aiTransactionDao.deleteAll()
-        } else {
-            transactionDao.deleteAll()
+        val origins = visibleOrigins(_parseMode.value)
+        val ids = store.transactions.value
+            .filter { it.origin in origins }
+            .map { it.tx.docId }
+        if (ids.isNotEmpty()) {
+            runCatching { store.deleteTransactions(ids) }
         }
     }
 
-    // ── JSON Backup Export Methods ─────────────────────────────────────────
-
-    private suspend fun exportManualExpensesToJson() {
-        try {
-            val expenses = pManualDao.getAll().map { it.toDomain() }
-            val jsonArray = org.json.JSONArray()
-            expenses.forEach { jsonArray.put(it.toJsonObject()) }
-            fileManager.writeJsonBackup("manual_expenses.json", jsonArray.toString(2))
-        } catch (_: Exception) {}
-    }
-
-    private suspend fun exportSkippedToJson() {
-        try {
-            val skipped = pSkippedDao.getAll().map { it.toDomain() }
-            val jsonArray = org.json.JSONArray()
-            skipped.forEach { jsonArray.put(it.toJsonObject()) }
-            fileManager.writeJsonBackup("skipped_transactions.json", jsonArray.toString(2))
-        } catch (_: Exception) {}
-    }
-
-    private suspend fun exportTemplatesToJson() {
-        try {
-            val templates = pTemplateDao.getAll().map { it.toDomain() }
-            val jsonArray = org.json.JSONArray()
-            templates.forEach { jsonArray.put(it.toJsonObject()) }
-            fileManager.writeJsonBackup("message_templates.json", jsonArray.toString(2))
-        } catch (_: Exception) {}
-    }
-
-    private suspend fun exportBanksToJson() {
-        try {
-            val banks = pBankDao.getAll().map { it.toDomain() }
-            val jsonArray = org.json.JSONArray()
-            banks.forEach { jsonArray.put(it.toJsonObject()) }
-            fileManager.writeJsonBackup("monitored_banks.json", jsonArray.toString(2))
-        } catch (_: Exception) {}
+    private fun yearMonthOf(timestamp: Long): String {
+        return try {
+            val dt = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
+            "%04d-%02d".format(dt.year, dt.monthValue)
+        } catch (_: Exception) {
+            "1970-01"
+        }
     }
 
     private fun formatYearMonth(ym: String): String {

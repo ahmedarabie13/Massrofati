@@ -2,6 +2,12 @@ package com.banksms.expensetracker.data.model
 
 data class Transaction(
     val id: Long = 0,
+    /**
+     * Stable cross-device identity: the Firestore document ID
+     * ("sms_<messageId>" or "manual_<manualId>"). [id] is derived from it
+     * ([docId].hashCode) so every device agrees on numeric ids too.
+     */
+    val docId: String = "",
     val messageId: Long = 0,
     val sender: String,
     val type: TransactionType,
