@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "519138252053-ipuhfam6324lv5ufknji4odgl41lnqh2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.banksms.expensetracker",
+            "certificate_hash": "feeba8be8a35f4c3c19d69369e0af123e72d0f07"
+          }
+        },
+        {
           "client_id": "519138252053-nqnj25aph6pusebfe4ahecep1no6d1pf.apps.googleusercontent.com",
           "client_type": 3
         }

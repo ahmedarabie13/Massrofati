@@ -382,8 +382,15 @@ class FirestoreStore(
 
     suspend fun isMigrationCompleted(): Boolean = withContext(Dispatchers.IO) {
         try {
-            settingsDoc.get().await().getBoolean("migrationCompleted") == true
-        } catch (_: Exception) {
+            val snap = withTimeoutOrNull(25_000) { settingsDoc.get().await() }
+            if (snap == null) {
+                Log.w(TAG, "settings read timed out (backend unreachable?)")
+                return@withContext false
+            }
+            Log.d(TAG, "settings read: fromCache=${snap.metadata.isFromCache}")
+            snap.getBoolean("migrationCompleted") == true
+        } catch (e: Exception) {
+            Log.w(TAG, "settings read failed", e)
             false
         }
     }
@@ -398,7 +405,13 @@ class FirestoreStore(
 
     /** One-shot point read of the transactions collection (migration dedup). */
     suspend fun fetchAllTransactionsOnce(): List<TxDoc> = withContext(Dispatchers.IO) {
-        txCol.get().await().documents.mapNotNull {
+        val snap = withTimeoutOrNull(40_000) { txCol.get().await() }
+        if (snap == null) {
+            Log.w(TAG, "transactions fetch timed out (backend unreachable?)")
+            return@withContext emptyList()
+        }
+        Log.d(TAG, "transactions fetch: ${snap.size()} docs, fromCache=${snap.metadata.isFromCache}")
+        snap.documents.mapNotNull {
             runCatching { txDocFromDoc(it) }.getOrNull()
         }
     }
