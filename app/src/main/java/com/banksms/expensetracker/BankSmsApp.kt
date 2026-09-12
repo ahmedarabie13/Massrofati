@@ -52,6 +52,15 @@ class BankSmsApp : Application() {
     var sessionUid: String? = null
         private set
 
+    /**
+     * Cold-start inbox sync runs once per process. Account switches and
+     * post-login compositions must NOT retrigger a full sync the moment
+     * the user lands in the app (it looks like a stuck reload screen and
+     * hammers write quotas); manual sync stays one tap away.
+     */
+    @Volatile
+    var didColdStartSync = false
+
     fun isSessionOpen(uid: String? = null): Boolean {
         if (!::repository.isInitialized) return false
         return uid == null || sessionUid == uid

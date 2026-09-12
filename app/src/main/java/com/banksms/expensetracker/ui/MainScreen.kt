@@ -162,7 +162,9 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                 }
             }
 
-            // Auto-trigger initial scan when permission is granted
+            // Auto-trigger initial scan when permission is granted. Cold start
+            // only: account switches and post-login compositions reuse this
+            // screen and must not fire a full sync under the user's feet.
             LaunchedEffect(Unit) {
                 // Request MANAGE_EXTERNAL_STORAGE on Android 11+ so we can access Documents/Masari (legacy data folder)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
@@ -178,7 +180,10 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                         } catch (_: Exception) {}
                     }
                 }
-                dashboardViewModel.syncSms()
+                if (!app.didColdStartSync) {
+                    app.didColdStartSync = true
+                    dashboardViewModel.syncSms()
+                }
             }
 
             Scaffold(

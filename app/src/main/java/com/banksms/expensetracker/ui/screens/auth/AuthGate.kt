@@ -115,6 +115,10 @@ fun AuthGate(modifier: Modifier = Modifier) {
                 biometricsOfferedFor = current.uid
                 authViewModel.consumeFreshLogin()
                 sessionUnlocked = true
+                // Open eagerly (synchronous, idempotent): the session block
+                // below reaches the same call, but this way Enable never
+                // depends on effect timing to advance.
+                runCatching { app.openSession(current.uid) }
             },
             modifier = modifier
         )
