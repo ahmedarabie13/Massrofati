@@ -1,19 +1,19 @@
 package com.banksms.expensetracker.ui.navigation
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -51,11 +51,12 @@ sealed class Screen(
         unselectedIcon = Icons.Outlined.BarChart
     )
 
+    // Dock tab: parsing mode, cloud backup, banks and templates live here.
     object Senders : Screen(
         route = "senders",
-        title = "Banks",
-        selectedIcon = Icons.Filled.AccountBalance,
-        unselectedIcon = Icons.Outlined.AccountBalance
+        title = "Settings",
+        selectedIcon = Icons.Filled.Settings,
+        unselectedIcon = Icons.Outlined.Settings
     )
 
     // Not in the bottom dock; reached from the dashboard header.

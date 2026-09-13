@@ -81,7 +81,7 @@ private fun barLabel(screen: Screen): String = when (screen) {
     is Screen.Dashboard -> "Home"
     is Screen.Transactions -> "Transactions"
     is Screen.Reports -> "Report"
-    is Screen.Senders -> "Banks"
+    is Screen.Senders -> "Settings"
     else -> screen.title
 }
 

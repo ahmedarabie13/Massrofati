@@ -92,7 +92,7 @@ fun BankSendersScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             RizeqTopAppBar(
-                title = "Banks & Parser",
+                title = "Settings",
                 subtitle = if (state.selectedTab == 0) "Monitored Bank Senders" else "Custom SMS Templates",
                 showBrandEmblem = false,
                 actions = {
