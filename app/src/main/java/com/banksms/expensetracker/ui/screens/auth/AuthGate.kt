@@ -28,9 +28,17 @@ private object AuthRoutes {
     const val REGISTER = "register"
 }
 
+private const val LOCK_BIOMETRIC = "biometric"
+private const val LOCK_PASSCODE = "passcode"
+
 /**
- * Root gate above everything: splash → login/register → (biometric offer) →
- * (lock) → app. The Firebase SDK owns session persistence; this only routes.
+ * Root gate above everything: splash → login/register → (passcode setup) →
+ * (biometric offer) → (lock: biometrics or passcode) → app. The Firebase SDK
+ * owns session persistence; this only routes.
+ *
+ * Every account registers a 4-digit passcode on its first successful login;
+ * already signed-in accounts without one are onboarded on next start. The
+ * lock is fail-closed: biometrics when enabled and ready, passcode otherwise.
  */
 @Composable
 fun AuthGate(modifier: Modifier = Modifier) {
@@ -51,6 +59,8 @@ fun AuthGate(modifier: Modifier = Modifier) {
 
     var sessionUnlocked by remember { mutableStateOf(false) }
     var biometricsOfferedFor by remember { mutableStateOf<String?>(null) }
+    var passcodeSetupDoneFor by remember { mutableStateOf<String?>(null) }
+    var lockMode by remember { mutableStateOf<String?>(null) }
     var lastUid by remember { mutableStateOf<String?>(null) }
     var sessionReady by remember { mutableStateOf(false) }
 
@@ -64,6 +74,8 @@ fun AuthGate(modifier: Modifier = Modifier) {
         // Signed out: reset session flags and show login/registration.
         sessionUnlocked = false
         biometricsOfferedFor = null
+        passcodeSetupDoneFor = null
+        lockMode = null
         lastUid = null
         sessionReady = false
         authViewModel.consumeFreshLogin()
@@ -76,6 +88,8 @@ fun AuthGate(modifier: Modifier = Modifier) {
     if (lastUid != null && lastUid != current.uid) {
         sessionUnlocked = false
         biometricsOfferedFor = null
+        passcodeSetupDoneFor = null
+        lockMode = null
     }
     lastUid = current.uid
 
@@ -106,6 +120,19 @@ fun AuthGate(modifier: Modifier = Modifier) {
         biometricsReady = false
     }
 
+    // Every account owns a 4-digit passcode: fresh logins register one
+    // before anything else, and already signed-in accounts without one are
+    // onboarded here on next start.
+    val passcodeSet = app.passcodeLock.hasPasscode(current.uid)
+    if (!passcodeSet && passcodeSetupDoneFor != current.uid) {
+        PasscodeSetupScreen(
+            uid = current.uid,
+            onDone = { passcodeSetupDoneFor = current.uid },
+            modifier = modifier
+        )
+        return
+    }
+
     // Fresh credential login → offer biometric unlock once (never re-offer
     // when already enabled).
     if (freshUid == current.uid && biometricsOfferedFor != current.uid && !biometricOptIn) {
@@ -125,20 +152,41 @@ fun AuthGate(modifier: Modifier = Modifier) {
         return
     }
 
-    // Returning session with biometric opt-in → lock until verified.
-    // While the sensor state is still being probed (null), hold the splash
-    // so the dashboard never flashes before the lock.
+    // Returning session → lock until verified. While the sensor state is
+    // still being probed (null), hold the splash so the dashboard never
+    // flashes before the lock. Fail-closed: biometrics when enabled and
+    // ready, otherwise the passcode (never straight into the app).
     if (biometricOptIn && biometricsReady == null) {
         Splash(modifier)
         return
     }
-    if (!sessionUnlocked && biometricOptIn && biometricsReady == true) {
-        LockScreen(
-            displayName = current.displayName ?: "",
-            onUnlocked = { sessionUnlocked = true },
-            onUsePasswordInstead = { app.authRepository.signOut() },
-            modifier = modifier
-        )
+    if (!sessionUnlocked) {
+        val biometricUsable = biometricOptIn && biometricsReady == true
+        if (lockMode == null) {
+            lockMode = if (biometricUsable) LOCK_BIOMETRIC else LOCK_PASSCODE
+        }
+        if (lockMode == LOCK_BIOMETRIC && biometricUsable) {
+            LockScreen(
+                displayName = current.displayName ?: "",
+                onUnlocked = { sessionUnlocked = true },
+                onUsePasswordInstead = { app.authRepository.signOut() },
+                onUsePasscodeInstead = { lockMode = LOCK_PASSCODE },
+                modifier = modifier
+            )
+        } else {
+            PasscodeEntryScreen(
+                uid = current.uid,
+                displayName = current.displayName ?: "",
+                onUnlocked = { sessionUnlocked = true },
+                onUsePasswordInstead = { app.authRepository.signOut() },
+                onUseBiometric = if (biometricUsable) {
+                    { lockMode = LOCK_BIOMETRIC }
+                } else {
+                    null
+                },
+                modifier = modifier
+            )
+        }
         return
     }
 

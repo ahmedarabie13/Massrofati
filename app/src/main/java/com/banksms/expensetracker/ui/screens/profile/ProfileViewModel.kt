@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.banksms.expensetracker.data.auth.AuthRepository
 import com.banksms.expensetracker.data.auth.BiometricUnlock
+import com.banksms.expensetracker.data.auth.PasscodeCrypto
+import com.banksms.expensetracker.data.auth.PasscodeLock
 import com.banksms.expensetracker.data.repository.TransactionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,7 @@ data class ProfileUiState(
     val hasPassword: Boolean = false,
     val biometricAvailable: Boolean = false,
     val biometricOn: Boolean = false,
+    val passcodeSet: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
     val info: String? = null
@@ -27,6 +30,7 @@ data class ProfileUiState(
 class ProfileViewModel(
     private val auth: AuthRepository,
     private val biometricUnlock: BiometricUnlock,
+    private val passcodeLock: PasscodeLock,
     private val repository: TransactionRepository
 ) : ViewModel() {
 
@@ -43,7 +47,8 @@ class ProfileViewModel(
                     isGoogleAccount = user?.providerData
                         ?.any { it.providerId == "google.com" } == true,
                     hasPassword = auth.hasPasswordProvider(),
-                    biometricOn = uid?.let { biometricUnlock.isEnabledFor(it) } ?: false
+                    biometricOn = uid?.let { biometricUnlock.isEnabledFor(it) } ?: false,
+                    passcodeSet = uid?.let { passcodeLock.hasPasscode(it) } ?: false
                 )
             }
         }
@@ -107,6 +112,21 @@ class ProfileViewModel(
         update { copy(biometricOn = on) }
     }
 
+    fun changePasscode(new: String, confirm: String) {
+        val uid = auth.currentUser?.uid ?: return
+        if (!PasscodeCrypto.isValidFormat(new)) {
+            return update { copy(error = "Passcode must be 4 digits.") }
+        }
+        if (new != confirm) {
+            return update { copy(error = "Passcodes don't match.") }
+        }
+        if (passcodeLock.setPasscode(uid, new)) {
+            update { copy(passcodeSet = true, info = "App passcode updated.") }
+        } else {
+            update { copy(error = "Could not save the passcode.") }
+        }
+    }
+
     fun signOut() {
         auth.currentUser?.uid?.let { biometricUnlock.setEnabled(it, false) }
         auth.signOut()
@@ -127,7 +147,10 @@ class ProfileViewModel(
                 val uid = auth.currentUser?.uid
                 auth.deleteAccount()
                     .onSuccess {
-                        if (uid != null) biometricUnlock.setEnabled(uid, false)
+                        if (uid != null) {
+                            biometricUnlock.setEnabled(uid, false)
+                            passcodeLock.clear(uid)
+                        }
                     }
                     .onFailure { e -> update { copy(error = e.message) } }
             } finally {
@@ -143,11 +166,12 @@ class ProfileViewModel(
     class Factory(
         private val auth: AuthRepository,
         private val biometricUnlock: BiometricUnlock,
+        private val passcodeLock: PasscodeLock,
         private val repository: TransactionRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ProfileViewModel(auth, biometricUnlock, repository) as T
+            return ProfileViewModel(auth, biometricUnlock, passcodeLock, repository) as T
         }
     }
 }

@@ -137,7 +137,7 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
             val sendersViewModel: BankSendersViewModel = viewModel(key = "BankSendersViewModel_$uid", factory = BankSendersViewModel.Factory(repository))
             val profileViewModel: ProfileViewModel = viewModel(
                 key = "ProfileViewModel_$uid",
-                factory = ProfileViewModel.Factory(app.authRepository, app.biometricUnlock, repository)
+                factory = ProfileViewModel.Factory(app.authRepository, app.biometricUnlock, app.passcodeLock, repository)
             )
             // Shared App engine: one model load for chat + AI parsing.
             val chatEngine = remember { app.refreshEngine() }

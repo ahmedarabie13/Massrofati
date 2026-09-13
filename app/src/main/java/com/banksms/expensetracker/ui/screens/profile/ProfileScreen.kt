@@ -78,6 +78,7 @@ fun ProfileScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var showEditName by remember { mutableStateOf(false) }
     var showChangePassword by remember { mutableStateOf(false) }
+    var showChangePasscode by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -253,6 +254,13 @@ fun ProfileScreen(
                     )
                 }
             }
+            ProfileRow(
+                icon = Icons.Default.Lock,
+                title = "App passcode",
+                subtitle = if (state.passcodeSet) "Change your 4-digit code"
+                else "No passcode set yet",
+                onClick = { showChangePasscode = true }
+            )
 
             SectionTitle("Backup")
             Card(
@@ -406,6 +414,51 @@ fun ProfileScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showChangePassword = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showChangePasscode) {
+        var newCode by remember { mutableStateOf("") }
+        var confirmCode by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showChangePasscode = false },
+            title = { Text("App passcode", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = newCode,
+                        onValueChange = { newCode = it.filter(Char::isDigit).take(4) },
+                        label = { Text("New 4-digit code") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = confirmCode,
+                        onValueChange = { confirmCode = it.filter(Char::isDigit).take(4) },
+                        label = { Text("Confirm new code") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.changePasscode(newCode, confirmCode)
+                        showChangePasscode = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DribbblePurple)
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showChangePasscode = false }) { Text("Cancel") }
             }
         )
     }

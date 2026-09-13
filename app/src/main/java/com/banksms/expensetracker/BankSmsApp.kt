@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import com.banksms.expensetracker.data.auth.AuthRepository
 import com.banksms.expensetracker.data.auth.BiometricUnlock
+import com.banksms.expensetracker.data.auth.PasscodeLock
 import com.banksms.expensetracker.data.cloud.FirestoreStore
 import com.banksms.expensetracker.data.cloud.LegacyLocalMigration
 import com.banksms.expensetracker.data.file.ExpenseFileManager
@@ -131,6 +132,10 @@ class BankSmsApp : Application() {
     lateinit var biometricUnlock: BiometricUnlock
         private set
 
+    /** Per-account 4-digit passcode gate (fallback when biometrics are off). */
+    lateinit var passcodeLock: PasscodeLock
+        private set
+
     /**
      * Single shared engine for chat AND background AI parsing (one 3.7 GB
      * model load, inference serialized inside LiteRtLmChatEngine).
@@ -143,6 +148,7 @@ class BankSmsApp : Application() {
         super.onCreate()
         authRepository = AuthRepository()
         biometricUnlock = BiometricUnlock(this)
+        passcodeLock = PasscodeLock(this)
         database = AppDatabase.getInstance(this)
         aiDatabase = AiAppDatabase.getInstance(this)
         fileManager = ExpenseFileManager(this)

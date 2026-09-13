@@ -58,7 +58,10 @@ internal fun AuthField(
         label = { Text(label) },
         singleLine = true,
         shape = RoundedCornerShape(14.dp),
-        keyboardOptions = keyboardOptions,
+        // Never let the keyboard autocomplete/autocorrect credentials:
+        // vendors (e.g. Samsung) otherwise commit ghost suffixes like
+        // "app" -> "appreciate" into the field on focus change or tap.
+        keyboardOptions = keyboardOptions.copy(autoCorrectEnabled = false),
         keyboardActions = keyboardActions,
         visualTransformation = visualTransformation,
         trailingIcon = trailingIcon,

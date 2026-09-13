@@ -41,6 +41,7 @@ fun LockScreen(
     displayName: String,
     onUnlocked: () -> Unit,
     onUsePasswordInstead: () -> Unit,
+    onUsePasscodeInstead: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -125,6 +126,11 @@ fun LockScreen(
         Spacer(modifier = Modifier.height(32.dp))
         AuthPrimaryButton(text = "Unlock", onClick = ::launchPrompt, busy = false)
         Spacer(modifier = Modifier.height(8.dp))
+        if (onUsePasscodeInstead != null) {
+            TextButton(onClick = onUsePasscodeInstead) {
+                Text("Use passcode instead")
+            }
+        }
         TextButton(onClick = onUsePasswordInstead) {
             Text("Use password instead")
         }
