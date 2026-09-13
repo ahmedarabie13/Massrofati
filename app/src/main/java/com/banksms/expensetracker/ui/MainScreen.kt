@@ -59,10 +59,6 @@ import com.banksms.expensetracker.ui.screens.dashboard.DashboardViewModel
 import com.banksms.expensetracker.ui.screens.permissions.PermissionScreen
 import com.banksms.expensetracker.ui.screens.profile.ProfileScreen
 import com.banksms.expensetracker.ui.screens.profile.ProfileViewModel
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.hazeSource
 import com.banksms.expensetracker.ui.screens.reports.ReportsScreen
 import com.banksms.expensetracker.ui.screens.reports.ReportsViewModel
 import com.banksms.expensetracker.ui.screens.senders.BankSendersScreen
@@ -134,10 +130,6 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
 
-            // Frosted halo: page content is the blur source; the halo
-            // around the dock samples it (real backdrop blur via Haze).
-            val hazeState = remember { HazeState() }
-
             val dashboardViewModel: DashboardViewModel = viewModel(key = "DashboardViewModel_$uid", factory = DashboardViewModel.Factory(repository))
             val transactionsViewModel: TransactionsViewModel = viewModel(key = "TransactionsViewModel_$uid", factory = TransactionsViewModel.Factory(repository))
             val skippedViewModel: SkippedViewModel = viewModel(key = "SkippedViewModel_$uid", factory = SkippedViewModel.Factory(repository))
@@ -203,10 +195,8 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                     // own bars — the floating dock would cover them, so hide
                     // the dock there.
                     if (currentRoute != Screen.Chat.route && currentRoute != Screen.Profile.route) {
-                    // Frosted halo OUTSIDE the pill: the page blurs softly
-                    // around the dock's silhouette. The pill face itself is
-                    // solid surface — blurred AND not transparent, with no
-                    // sheer zone for bright backdrop to read through as bands.
+                    // Floating dock: just the solid pill on the transparent
+                    // page background — no blurred halo slab around it.
                     // Wide, slim dock: narrow side margins, compact rows.
                     Box(
                         modifier = Modifier
@@ -215,31 +205,17 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                             .padding(horizontal = 12.dp)
                             .padding(top = 26.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp)
-                                .hazeEffect(
-                                    state = hazeState,
-                                    style = HazeStyle(
-                                        backgroundColor = Color.Transparent,
-                                        tints = emptyList(),
-                                        blurRadius = 32.dp,
-                                        noiseFactor = 0f
-                                    )
-                                )
+                        Surface(
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 12.dp,
+                            tonalElevation = 0.dp,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(28.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 12.dp,
-                                tonalElevation = 0.dp,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
                             Column {
                                 Row(
                                     modifier = Modifier
@@ -270,7 +246,6 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                                 }
                                 Spacer(modifier = Modifier.height(10.dp))
                             }
-                            } // halo Box
                         }
 
                         FloatingActionButton(
@@ -309,8 +284,7 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                     navController = navController,
                     startDestination = Screen.Dashboard.route,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .hazeSource(state = hazeState),
+                        .fillMaxSize(),
                     enterTransition = { fadeIn(animationSpec = tween(180)) },
                     exitTransition = { fadeOut(animationSpec = tween(180)) }
                 ) {
