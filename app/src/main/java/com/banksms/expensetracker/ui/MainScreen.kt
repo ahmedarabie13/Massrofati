@@ -15,8 +15,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,6 +59,10 @@ import com.banksms.expensetracker.ui.screens.dashboard.DashboardViewModel
 import com.banksms.expensetracker.ui.screens.permissions.PermissionScreen
 import com.banksms.expensetracker.ui.screens.profile.ProfileScreen
 import com.banksms.expensetracker.ui.screens.profile.ProfileViewModel
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
 import com.banksms.expensetracker.ui.screens.reports.ReportsScreen
 import com.banksms.expensetracker.ui.screens.reports.ReportsViewModel
 import com.banksms.expensetracker.ui.screens.senders.BankSendersScreen
@@ -128,6 +134,10 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
 
+            // Frosted halo: page content is the blur source; the halo
+            // around the dock samples it (real backdrop blur via Haze).
+            val hazeState = remember { HazeState() }
+
             val dashboardViewModel: DashboardViewModel = viewModel(key = "DashboardViewModel_$uid", factory = DashboardViewModel.Factory(repository))
             val transactionsViewModel: TransactionsViewModel = viewModel(key = "TransactionsViewModel_$uid", factory = TransactionsViewModel.Factory(repository))
             val skippedViewModel: SkippedViewModel = viewModel(key = "SkippedViewModel_$uid", factory = SkippedViewModel.Factory(repository))
@@ -193,57 +203,73 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                     // own bars — the floating dock would cover them, so hide
                     // the dock there.
                     if (currentRoute != Screen.Chat.route && currentRoute != Screen.Profile.route) {
+                    // Frosted halo OUTSIDE the pill: the page blurs softly
+                    // around the dock's silhouette. The pill face itself is
+                    // solid surface — blurred AND not transparent, with no
+                    // sheer zone for bright backdrop to read through as bands.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .windowInsetsPadding(WindowInsets.navigationBars)
                             .padding(horizontal = 20.dp)
-                            .padding(bottom = 18.dp, top = 26.dp)
+                            .padding(top = 26.dp)
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(28.dp),
-                            // Semi-transparent frosted pill instead of a solid
-                            // slab: page content flows full-bleed beneath the
-                            // dock and shows faintly through it. (True backdrop
-                            // blur isn't available in Compose on minSdk 26, so
-                            // translucency + the hairline border carry the
-                            // glass effect.)
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
-                            shadowElevation = 12.dp,
-                            tonalElevation = 0.dp,
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                                .hazeEffect(
+                                    state = hazeState,
+                                    style = HazeStyle(
+                                        backgroundColor = Color.Transparent,
+                                        tints = emptyList(),
+                                        blurRadius = 32.dp,
+                                        noiseFactor = 0f
+                                    )
+                                )
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                shape = RoundedCornerShape(28.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                shadowElevation = 12.dp,
+                                tonalElevation = 0.dp,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                barTabs.take(2).forEach { screen ->
-                                    DribbbleNavItem(
-                                        label = barLabel(screen),
-                                        selected = currentRoute == screen.route,
-                                        selectedIcon = screen.selectedIcon,
-                                        unselectedIcon = screen.unselectedIcon,
-                                        onClick = { navigateTo(screen.route) }
-                                    )
+                            Column {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    barTabs.take(2).forEach { screen ->
+                                        DribbbleNavItem(
+                                            label = barLabel(screen),
+                                            selected = currentRoute == screen.route,
+                                            selectedIcon = screen.selectedIcon,
+                                            unselectedIcon = screen.unselectedIcon,
+                                            onClick = { navigateTo(screen.route) }
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(52.dp))
+                                    barTabs.drop(2).forEach { screen ->
+                                        DribbbleNavItem(
+                                            label = barLabel(screen),
+                                            selected = currentRoute == screen.route,
+                                            selectedIcon = screen.selectedIcon,
+                                            unselectedIcon = screen.unselectedIcon,
+                                            onClick = { navigateTo(screen.route) }
+                                        )
+                                    }
                                 }
-                                Spacer(modifier = Modifier.width(64.dp))
-                                barTabs.drop(2).forEach { screen ->
-                                    DribbbleNavItem(
-                                        label = barLabel(screen),
-                                        selected = currentRoute == screen.route,
-                                        selectedIcon = screen.selectedIcon,
-                                        unselectedIcon = screen.unselectedIcon,
-                                        onClick = { navigateTo(screen.route) }
-                                    )
-                                }
+                                Spacer(modifier = Modifier.height(18.dp))
                             }
+                            } // halo Box
                         }
 
                         FloatingActionButton(
@@ -281,7 +307,9 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                 NavHost(
                     navController = navController,
                     startDestination = Screen.Dashboard.route,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .hazeSource(state = hazeState),
                     enterTransition = { fadeIn(animationSpec = tween(180)) },
                     exitTransition = { fadeOut(animationSpec = tween(180)) }
                 ) {
@@ -352,7 +380,8 @@ private fun DribbbleNavItem(
     unselectedIcon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit
 ) {
-    val contentColor = if (selected) MaterialTheme.colorScheme.onSurface
+    // Selected tab wears the app purple in both modes; idle tabs stay muted.
+    val contentColor = if (selected) DribbblePurple
     else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
     Surface(
         onClick = onClick,
@@ -361,7 +390,7 @@ private fun DribbbleNavItem(
     ) {
         androidx.compose.foundation.layout.Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
         ) {
             Icon(
                 imageVector = if (selected) selectedIcon else unselectedIcon,
@@ -371,6 +400,7 @@ private fun DribbbleNavItem(
             )
             Text(
                 text = label,
+                maxLines = 1,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                     fontSize = 11.sp

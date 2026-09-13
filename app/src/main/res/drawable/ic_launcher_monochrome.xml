@@ -5,8 +5,7 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Massrofati "M" mark: bold polyline with round caps, centered in the
-         adaptive safe zone, plus a coin-dot accent. -->
+    <!-- Monochrome (themed icon) variant of the Massrofati "M" mark. -->
     <path
         android:pathData="M33,75 L33,37 L54,59 L75,37 L75,75"
         android:strokeWidth="11"

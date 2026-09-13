@@ -78,6 +78,9 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
 
+    // Frosted-glass dock blur
+    implementation(libs.haze)
+
     // Google sign-in via Credential Manager + biometric app unlock
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
