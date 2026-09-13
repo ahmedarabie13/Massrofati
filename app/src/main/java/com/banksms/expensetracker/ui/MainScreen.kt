@@ -207,11 +207,12 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                     // around the dock's silhouette. The pill face itself is
                     // solid surface — blurred AND not transparent, with no
                     // sheer zone for bright backdrop to read through as bands.
+                    // Wide, slim dock: narrow side margins, compact rows.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .windowInsetsPadding(WindowInsets.navigationBars)
-                            .padding(horizontal = 20.dp)
+                            .padding(horizontal = 12.dp)
                             .padding(top = 26.dp)
                     ) {
                         Box(
@@ -243,7 +244,7 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -267,7 +268,7 @@ fun MainScreen(uid: String, modifier: Modifier = Modifier) {
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(18.dp))
+                                Spacer(modifier = Modifier.height(10.dp))
                             }
                             } // halo Box
                         }

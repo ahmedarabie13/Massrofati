@@ -55,7 +55,7 @@ fun ReportsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             ReportHeader(
-                periodLabel = state.dateRange.label,
+                periodLabel = state.dateRange.shortLabel,
                 onPeriodClick = { showDatePicker = true },
                 canExport = state.rawTransactions.isNotEmpty(),
                 onExport = { CsvExporter.exportAndShare(context, state.rawTransactions) }

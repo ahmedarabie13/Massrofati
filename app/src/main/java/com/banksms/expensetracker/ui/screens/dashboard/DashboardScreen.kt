@@ -81,7 +81,7 @@ fun DashboardScreen(
                 BalanceHeaderCard(
                     balance = CurrencyFormatter.format(state.summary.netSavings, state.summary.currency),
                     incomePill = "+ ${CurrencyFormatter.format(state.summary.totalIncome, state.summary.currency)} income",
-                    periodLabel = state.dateRange.label,
+                    periodLabel = state.dateRange.shortLabel,
                     isSyncing = state.isSyncing,
                     onPeriodClick = { showDatePicker = true },
                     // Tapping the spinner while syncing stops the sync.
@@ -454,24 +454,32 @@ private fun BalanceHeaderCard(
                 .padding(horizontal = 20.dp, vertical = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Balanced slots: equal 88dp sides keep the month pill truly
+            // centered, and the weighted pill shrinks (ellipsis) instead of
+            // shoving the chat/sync buttons off-screen on narrow devices.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    onClick = onProfileClick,
-                    shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.25f),
-                    modifier = Modifier.size(44.dp)
+                Box(
+                    modifier = Modifier.width(88.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = "Profile",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                        )
+                    Surface(
+                        onClick = onProfileClick,
+                        shape = CircleShape,
+                        color = Color.White.copy(alpha = 0.25f),
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Profile",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
                     }
                 }
 
@@ -479,30 +487,43 @@ private fun BalanceHeaderCard(
                     label = periodLabel,
                     onClick = onPeriodClick,
                     containerColor = Color.White.copy(alpha = 0.22f),
-                    contentColor = Color.White
+                    contentColor = Color.White,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
 
-                IconButton(onClick = onChatClick) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "Chat with Assistant",
-                        tint = Color.White
-                    )
-                }
-                IconButton(onClick = onSyncClick) {
-                    if (isSyncing) {
-                        // Static stop square: tap halts the running sync.
+                Row(
+                    modifier = Modifier.width(88.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onChatClick,
+                        modifier = Modifier.size(44.dp)
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Stop,
-                            contentDescription = "Stop sync",
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Chat with Assistant",
                             tint = Color.White
                         )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = "Sync Bank SMS",
-                            tint = Color.White
-                        )
+                    }
+                    IconButton(
+                        onClick = onSyncClick,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        if (isSyncing) {
+                            // Static stop square: tap halts the running sync.
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = "Stop sync",
+                                tint = Color.White
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = "Sync Bank SMS",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }

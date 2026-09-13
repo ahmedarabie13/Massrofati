@@ -16,7 +16,9 @@ data class DateRange(
     val preset: DateRangePreset,
     val startTime: Long,
     val endTime: Long,
-    val label: String
+    val label: String,
+    // Compact label for tight header slots (e.g. "September 2026").
+    val shortLabel: String = label
 )
 
 object DateUtils {
@@ -50,7 +52,7 @@ object DateUtils {
                 calendar.set(Calendar.MILLISECOND, 999)
                 val end = calendar.timeInMillis
 
-                DateRange(preset, start, end, "This Month (${formatMonthYear(start)})")
+                DateRange(preset, start, end, "This Month (${formatMonthYear(start)})", formatMonthYear(start))
             }
 
             DateRangePreset.LAST_MONTH -> {
@@ -69,7 +71,7 @@ object DateUtils {
                 calendar.set(Calendar.MILLISECOND, 999)
                 val end = calendar.timeInMillis
 
-                DateRange(preset, start, end, "Last Month (${formatMonthYear(start)})")
+                DateRange(preset, start, end, "Last Month (${formatMonthYear(start)})", formatMonthYear(start))
             }
 
             DateRangePreset.LAST_30_DAYS -> {
@@ -88,7 +90,8 @@ object DateUtils {
                 calendar.set(Calendar.MILLISECOND, 0)
                 val start = calendar.timeInMillis
                 val end = System.currentTimeMillis()
-                DateRange(preset, start, end, "This Year (${Calendar.getInstance().get(Calendar.YEAR)})")
+                val year = Calendar.getInstance().get(Calendar.YEAR)
+                DateRange(preset, start, end, "This Year ($year)", "$year")
             }
 
             DateRangePreset.ALL_TIME -> {
